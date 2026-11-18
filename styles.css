@@ -330,3 +330,47 @@ footer{border-color:rgba(255,255,255,.12)}
   opacity: .38;
   cursor: not-allowed;
 }
+
+
+/* Developer credits modal */
+.footer-right { display:flex; align-items:center; gap:18px; }
+.credits-link {
+  border:0; background:transparent; color:var(--muted, #a9b6b0);
+  font:inherit; font-size:11px; letter-spacing:.08em; cursor:pointer;
+  padding:6px 0; transition:color .2s ease;
+}
+.credits-link:hover { color:#c5f2df; }
+.credits-backdrop {
+  position:fixed; inset:0; z-index:1000; display:none; align-items:center;
+  justify-content:center; padding:20px; background:rgba(5,10,12,.72);
+  backdrop-filter:blur(14px); -webkit-backdrop-filter:blur(14px);
+}
+.credits-backdrop.open { display:flex; }
+.credits-card {
+  position:relative; width:min(100%,390px); padding:34px 28px 26px;
+  text-align:center; color:#edf5f0; border:1px solid rgba(221,245,234,.2);
+  border-radius:24px; background:linear-gradient(145deg,rgba(66,91,91,.96),rgba(31,43,58,.98));
+  box-shadow:0 28px 90px rgba(0,0,0,.48); animation:creditsIn .24s ease-out;
+}
+@keyframes creditsIn { from { opacity:0; transform:translateY(12px) scale(.98); } to { opacity:1; transform:translateY(0) scale(1); } }
+.credits-close {
+  position:absolute; top:12px; right:15px; border:0; background:transparent;
+  color:#dce9e2; font-size:27px; line-height:1; cursor:pointer; padding:5px 9px;
+}
+.credits-card h2 { margin:5px 0 18px; font-size:27px; letter-spacing:-.04em; }
+.credits-mark {
+  width:62px; height:62px; display:grid; place-items:center; margin:0 auto 12px;
+  border-radius:19px; color:#1c3933; font-weight:800; font-size:30px;
+  background:linear-gradient(145deg,#d9f8e9,#94cbb6);
+  box-shadow:0 8px 28px rgba(151,221,194,.18);
+}
+.credits-project { margin:0; font:11px "DM Mono",monospace; letter-spacing:.18em; color:#c8ded4; }
+.credits-divider { height:1px; background:rgba(228,245,236,.16); margin:24px 0 20px; }
+.credits-role { color:#a9c8ba; font:10px "DM Mono",monospace; letter-spacing:.2em; }
+.credits-name { margin:8px 0 5px; font-size:25px; }
+.credits-note { margin:0; color:#bdcbc5; font-size:13px; }
+.credits-version { margin:28px 0 0; color:#93aaa0; font:9px "DM Mono",monospace; letter-spacing:.14em; }
+@media (max-width:560px) {
+  footer { gap:12px; align-items:flex-start; }
+  .footer-right { flex-direction:column; align-items:flex-end; gap:4px; }
+}

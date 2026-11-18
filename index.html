@@ -154,9 +154,26 @@
       </aside>
     </section>
 
-    <footer><span>QUIET MOVE / 001</span><span>PLAY WELL. THINK CLEARLY.</span></footer>
+    <footer>
+      <span>QUIET MOVE / 001</span>
+      <div class="footer-right"><span>PLAY WELL. THINK CLEARLY.</span><button class="credits-link" id="openCreditsBtn" type="button">Credits ↗</button></div>
+    </footer>
   </main>
 
+  <div class="credits-backdrop" id="creditsModal" aria-hidden="true">
+    <section class="credits-card" role="dialog" aria-modal="true" aria-labelledby="creditsTitle">
+      <button class="credits-close" id="closeCreditsBtn" type="button" aria-label="Close credits">×</button>
+      <p class="eyebrow">THE PEOPLE BEHIND THE BOARD</p>
+      <h2 id="creditsTitle">Credits</h2>
+      <div class="credits-mark">Q</div>
+      <p class="credits-project">QUIET MOVE CHESS</p>
+      <div class="credits-divider"></div>
+      <span class="credits-role">DEVELOPER</span>
+      <h3 class="credits-name">Arya</h3>
+      <p class="credits-note">Designed and developed with care.</p>
+      <p class="credits-version">THANK YOU FOR PLAYING · 001</p>
+    </section>
+  </div>
   <div class="toast" id="toast" role="status"></div>
   <div class="modal-backdrop" id="promotionModal">
     <div class="promotion-card">

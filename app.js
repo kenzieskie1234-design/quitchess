@@ -548,9 +548,12 @@ $("castleQueenBtn").onclick=()=>{
 };
 $("cancelPromotion").onclick=()=>{$("promotionModal").classList.remove("open");pendingPromotion=null;};
 $("newGameBtn").onclick=async()=>{
-  if(roomId){toast("Keluar dari room untuk memulai game lokal.");return;}
-  clearTimeout(botTimer);botThinking=false;$("playBotBtn").disabled=false;
-  resignationResult=null; game.reset();selected=null;legalTargets=[];lastMove=null;render();toast("New game started.");
+  if (roomId) await leaveCurrentRoom();
+  resetBoardForFreshGame();
+  $("roomStatus").textContent="Ready for a new game.";
+  $("connectionLabel").textContent="OFFLINE";
+  render();
+  toast("Board reset. You can start a new game or create a new room.");
 };
 $("flipBtn").onclick=()=>{flipped=!flipped;render();};
 $("soundToggle").onclick=()=>{
@@ -685,10 +688,50 @@ $("cancelMatchmakingBtn")?.addEventListener("click",async()=>{
   setMatchmakingStatus("Search cancelled.");
 });
 
+async function leaveCurrentRoom() {
+  if (roomSyncTimer) {
+    clearInterval(roomSyncTimer);
+    roomSyncTimer = null;
+  }
+  if (channel && supabase) {
+    try { await supabase.removeChannel(channel); } catch (error) { console.warn("Room channel cleanup:", error); }
+  }
+  channel = null;
+  roomId = null;
+  roomRow = null;
+  roomMoveSaving = false;
+  isApplyingRemote = false;
+  myColor = "w";
+  resultApplied = false;
+  $("copyRoomBtn").disabled = true;
+  $("connectionLabel").textContent = "OFFLINE";
+  $("blackCaption").textContent = "Waiting for opponent";
+  const cleanUrl = new URL(location.href);
+  cleanUrl.searchParams.delete("room");
+  history.replaceState({}, "", cleanUrl.pathname + cleanUrl.search + cleanUrl.hash);
+}
+
+function resetBoardForFreshGame() {
+  clearTimeout(botTimer);
+  botThinking = false;
+  $("playBotBtn").disabled = false;
+  activeRandomBot = null;
+  resignationResult = null;
+  game.reset();
+  selected = null;
+  legalTargets = [];
+  lastMove = null;
+  pendingPromotion = null;
+  $("promotionModal")?.classList.remove("open");
+}
+
 async function createRoom() {
   if (!supabase) return toast("Isi URL dan anon key Supabase di app.js terlebih dahulu.");
   $("createRoomBtn").disabled=true;
   try {
+    if (roomId) await leaveCurrentRoom();
+    resetBoardForFreshGame();
+    render();
     const id = Math.random().toString(36).slice(2,8).toUpperCase();
     const {data,error}=await supabase.from("chess_rooms").insert({
       id,fen:game.fen(),pgn:game.pgn(),white_id:playerId,black_id:null,updated_at:new Date().toISOString()
@@ -715,7 +758,8 @@ async function joinRoom(id) {
       if(updated){data=updated;myColor="b";}
       else {const retry=await supabase.from("chess_rooms").select("*").eq("id",id).single();data=retry.data;if(data.black_id===playerId)myColor="b";else return toast("Room sudah penuh.");}
     } else return toast("Room sudah penuh. Maksimal dua pemain.");
-    roomId=id;roomRow=data;resultApplied=false;
+    if (roomId && roomId !== id) await leaveCurrentRoom();
+    roomId=id;roomRow=data;resultApplied=false;resignationResult=null;
     game.load(data.fen);selected=null;legalTargets=[];lastMove=null;
     await connectRoom();
     $("roomStatus").textContent=`Joined room ${id} as ${myColor==="w"?"White":"Black"}.`;
@@ -879,3 +923,27 @@ if(params.get("room")) {
   joinRoom(params.get("room").toUpperCase());
 }
 render();
+
+
+/* Developer credits menu */
+const creditsModal = $("creditsModal");
+$("openCreditsBtn")?.addEventListener("click", () => {
+  creditsModal?.classList.add("open");
+  creditsModal?.setAttribute("aria-hidden", "false");
+});
+$("closeCreditsBtn")?.addEventListener("click", () => {
+  creditsModal?.classList.remove("open");
+  creditsModal?.setAttribute("aria-hidden", "true");
+});
+creditsModal?.addEventListener("click", event => {
+  if (event.target === creditsModal) {
+    creditsModal.classList.remove("open");
+    creditsModal.setAttribute("aria-hidden", "true");
+  }
+});
+document.addEventListener("keydown", event => {
+  if (event.key === "Escape" && creditsModal?.classList.contains("open")) {
+    creditsModal.classList.remove("open");
+    creditsModal.setAttribute("aria-hidden", "true");
+  }
+});

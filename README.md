@@ -102,3 +102,17 @@ Versi ini masih prototipe tanpa Supabase Auth. Identitas pemain dibuat per brows
 - Jika Supabase Realtime terlambat atau tidak aktif, aplikasi tetap mencoba mengambil FEN terbaru dari `chess_rooms`.
 - Langkah lokal ditahan sementara saat update database sedang dikirim agar tidak terjadi tabrakan langkah.
 - Untuk hasil terbaik, aktifkan `chess_rooms` pada publication `supabase_realtime`; polling tetap menjadi fallback.
+
+
+## Fix: reset papan setelah menang/kalah dan room baru
+- Tombol **New game** sekarang meninggalkan room online aktif dengan membersihkan channel Realtime, polling, roomId, dan parameter URL.
+- Papan direset ke posisi awal, status menyerah, pilihan bidak, promosi, dan timer bot dibersihkan.
+- Tombol **Create room** otomatis membersihkan room sebelumnya dan memulai room baru dari posisi awal.
+- Bergabung ke room lain juga membersihkan koneksi room lama sebelum memuat posisi baru.
+
+
+## Developer credits
+- Footer memiliki menu **Credits** yang membuka panel kredit.
+- Developer ditampilkan sebagai **Arya**.
+- Panel dapat ditutup dengan tombol ×, mengetuk area luar panel, atau tombol Escape.
+- Perubahan tampilan berada di `index.html` dan `styles.css`; interaksi berada di `app.js`.
