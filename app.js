@@ -383,11 +383,16 @@ function toast(message) {
 }
 function isMyTurn() { return !roomId || game.turn() === myColor; }
 function updateBotProfile() {
-  const bot = BOT_PROFILES[selectedBot] || activeRandomBot || BOT_PROFILES.mitten;
-  $("botName").textContent = bot.name;
-  $("botDescription").textContent = bot.style;
-  $("botElo").textContent = bot.elo;
-  $("botAvatar").textContent = bot.avatar;
+  const bot = BOT_PROFILES[selectedBot] || activeRandomBot;
+  $("botName").textContent = bot?.name || "No opponent selected";
+  $("botDescription").textContent = bot?.style || "Choose an AI opponent to continue";
+  $("botElo").textContent = bot?.elo || "—";
+  $("botAvatar").textContent = bot?.avatar || "?";
+  const playButton = $("playBotBtn");
+  if (playButton) {
+    playButton.disabled = !selectedBot;
+    playButton.innerHTML = selectedBot ? 'Play against bot <span>↗</span>' : 'Choose an opponent first <span>↗</span>';
+  }
 }
 function isEndgamePosition(board) {
   let queens=0, minorsAndRooks=0;
@@ -465,13 +470,16 @@ function scheduleBotMove() {
   botTimer=setTimeout(()=>{
     const move=chooseBotMove();
     if(move) {
+      const movingColor = game.turn();
       const result=game.move({from:move.from,to:move.to,promotion:move.promotion});
-      if(result){playMoveSound(result);lastMove={from:result.from,to:result.to};}
+      if(result){addMoveIncrement(movingColor);playMoveSound(result);lastMove={from:result.from,to:result.to};}
     }
     botThinking=false;$("playBotBtn").disabled=false;render();
   },selectedBot==="arya"?650:450);
 }
 function render() {
+  paintClocks();
+  updateMaterialCount();
   const board = $("board"); board.innerHTML = "";
   const files = flipped ? "hgfedcba" : "abcdefgh";
   const ranks = flipped ? "12345678" : "87654321";
@@ -551,6 +559,7 @@ function updatePanel() {
 }
 function checkmate(){ return game.isCheckmate(); }
 function onSquare(square) {
+  if (clockExpired) return toast("Waktu habis. Pertandingan selesai.");
   if (resignationResult) return toast("Pertandingan sudah selesai.");
   if (roomMoveSaving) return toast("Mengirim langkah ke lawan...");
   if (game.isGameOver()) return toast("Game sudah selesai. Mulai game baru untuk bermain lagi.");
@@ -581,8 +590,10 @@ function showPromotion(move) {
 }
 function makeMove(move) {
   try {
+    const movingColor = game.turn();
     const result = game.move({from:move.from,to:move.to,promotion:move.promotion});
     if (!result) return;
+    addMoveIncrement(movingColor);
     playMoveSound(result);
     lastMove = {from:result.from,to:result.to}; selected=null;legalTargets=[];
     render();
@@ -768,11 +779,13 @@ async function leaveCurrentRoom() {
 
 function resetBoardForFreshGame() {
   clearTimeout(botTimer);
+  stopClock();
   botThinking = false;
   $("playBotBtn").disabled = false;
   activeRandomBot = null;
   resignationResult = null;
   game.reset();
+  resetClock();
   selected = null;
   legalTargets = [];
   lastMove = null;
@@ -931,15 +944,18 @@ $("botChoiceGrid").addEventListener("click",e=>{
 });
 $("playBotBtn").onclick=()=>{
   if(roomId){toast("Keluar dari room online sebelum bermain melawan bot.");return;}
-  clearTimeout(botTimer);botThinking=false;$("playBotBtn").disabled=false;
+  if(!selectedBot){toast("Pilih lawan AI terlebih dahulu.");return;}
+  clearTimeout(botTimer);botThinking=false;
   activeRandomBot=null; resignationResult=null; game.reset();selected=null;legalTargets=[];lastMove=null;
+  resetClock(); startClock();
   $("roomStatus").textContent="Local bot match · You play White.";
-  render();toast("New match vs "+(BOT_PROFILES[selectedBot]?.name || "Mitten"));
+  render();toast("New match vs "+BOT_PROFILES[selectedBot].name);
 };
 
 $("resignBtn").addEventListener("click", async () => {
-  if (game.isGameOver() || resignationResult) return;
+  if (game.isGameOver() || resignationResult || clockExpired) return;
   if (!confirm("Yakin ingin menyerah dari pertandingan ini?")) return;
+  stopClock();
   clearTimeout(botTimer);
   botThinking = false;
   const winner = roomId ? (myColor === "w" ? "Black" : "White") : "Black";
@@ -1003,7 +1019,7 @@ document.addEventListener("keydown", event => {
   }
 });
 
-$("timeOptions").addEventListener("click", (event) => {
+$("timeOptions")?.addEventListener("click", (event) => {
   const option = event.target.closest("[data-base]");
   if (!option) return;
   selectedTimeBase = Number(option.dataset.base);
