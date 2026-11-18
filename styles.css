@@ -422,3 +422,14 @@ footer{border-color:rgba(255,255,255,.12)}
 .tournament-trophies span+span small{font-size:8px;color:#9fb0a6}
 .trophy-row .trophy-icon{font-size:15px}
 @media(max-width:520px){.tournament-card{padding:13px}.tournament-countdown strong{font-size:21px}.tournament-actions{flex-direction:column}}
+
+
+/* Profile photo picker */
+.profile-photo-editor{display:flex;align-items:center;gap:14px;margin:4px 0 18px}
+.profile-photo-preview,.profile-photo-fallback{width:76px;height:76px;border-radius:50%;object-fit:cover;border:1px solid var(--line,rgba(255,255,255,.25));flex:0 0 76px}
+.profile-photo-fallback{display:grid;place-items:center;background:rgba(255,255,255,.12);font-size:28px;font-weight:700}
+.profile-photo-controls{display:grid;gap:6px;min-width:0}
+.profile-photo-controls input{max-width:100%;font-size:12px}
+.profile-photo-controls small{opacity:.65;font-size:11px}
+.player-avatar-img{width:42px;height:42px;border-radius:50%;object-fit:cover;flex:0 0 42px}
+[hidden]{display:none !important}

@@ -290,13 +290,14 @@ function playerCard(profile, action="add"){
     action==="duel"?`<button class="social-action" data-duel="${escapeHTML(profile.player_id)}">Duel</button>`:
     `<button class="social-action" data-view="${escapeHTML(profile.player_id)}">View</button>`;
   const view=action==="add"?`<button class="social-action muted" data-view="${escapeHTML(profile.player_id)}">Profile</button>`:"";
-  return `<article class="player-card"><div class="player-avatar">${escapeHTML((profile.username||"?").slice(0,1).toUpperCase())}</div><div class="player-info"><strong>${escapeHTML(profile.username)}</strong><small><i class="${online?"online":"offline"}"></i>${online?"Online":"Offline"} · ${Number(profile.elo)||400} Elo</small></div>${view}${btn}</article>`;
+  const avatar=profile.avatar_url?`<img class="player-avatar-img" src="${escapeHTML(profile.avatar_url)}" alt="">`:`<div class="player-avatar">${escapeHTML((profile.username||"?").slice(0,1).toUpperCase())}</div>`;
+  return `<article class="player-card">${avatar}<div class="player-info"><strong>${escapeHTML(profile.username)}</strong><small><i class="${online?"online":"offline"}"></i>${online?"Online":"Offline"} · ${Number(profile.elo)||400} Elo</small></div>${view}${btn}</article>`;
 }
 async function searchPlayers(){
   if(!supabase)return socialMessage("Configure Supabase terlebih dahulu.");
   const q=$("playerSearch").value.trim();
   if(!q)return socialMessage("Masukkan username atau Player ID.");
-  const {data,error}=await supabase.from("profiles").select("player_id,username,elo,bio,last_seen").or(`username.ilike.%${q}%,player_id.eq.${q}`).neq("player_id",playerId).limit(20);
+  const {data,error}=await supabase.from("profiles").select("player_id,username,elo,bio,last_seen,avatar_url").or(`username.ilike.%${q}%,player_id.eq.${q}`).neq("player_id",playerId).limit(20);
   if(error){socialMessage("Pencarian gagal. Jalankan pembaruan SQL.");return;}
   $("searchResults").innerHTML=data.length?data.map(x=>playerCard(x,"add")).join(""):'<p class="social-empty">No players found.</p>';
   socialMessage(`${data.length} player(s) found.`);
@@ -308,7 +309,7 @@ async function loadFriends(){
   const ids=data.map(r=>r.player_a===playerId?r.player_b:r.player_a);
   $("friendCount").textContent=ids.length+" FRIENDS";
   if(!ids.length){$("friendsList").innerHTML='<p class="social-empty">No friends yet. Find players and add them.</p>';return;}
-  const result=await supabase.from("profiles").select("player_id,username,elo,last_seen").in("player_id",ids);
+  const result=await supabase.from("profiles").select("player_id,username,elo,last_seen,avatar_url").in("player_id",ids);
   $("friendsList").innerHTML=(result.data||[]).map(x=>playerCard(x,"duel")).join("");
 }
 async function loadFriendRequests(){
@@ -316,7 +317,7 @@ async function loadFriendRequests(){
   const {data,error}=await supabase.from("friend_requests").select("*").eq("to_id",playerId).eq("status","pending").order("created_at",{ascending:false});
   if(error){$("friendRequests").innerHTML='<p class="social-empty">Friend requests table is not configured.</p>';return;}
   const ids=data.map(x=>x.from_id);
-  const profiles=ids.length ? await supabase.from("profiles").select("player_id,username,elo,last_seen").in("player_id",ids) : {data:[]};
+  const profiles=ids.length ? await supabase.from("profiles").select("player_id,username,elo,last_seen,avatar_url").in("player_id",ids) : {data:[]};
   $("friendRequests").innerHTML=data.map(req=>{
     const u=(profiles.data||[]).find(x=>x.player_id===req.from_id)||{username:"Player",elo:400};
     return `<article class="player-card"><div class="player-info"><strong>${escapeHTML(u.username)}</strong><small>Friend request · ${Number(u.elo)||400} Elo</small></div><button class="social-action" data-accept="${req.id}">Accept</button><button class="social-action muted" data-decline="${req.id}">Decline</button></article>`;
@@ -324,7 +325,7 @@ async function loadFriendRequests(){
   const duels=await supabase.from("duel_requests").select("*").eq("to_id",playerId).eq("status","pending").order("created_at",{ascending:false});
   if(!duels.error && duels.data.length){
     const duelIds=duels.data.map(d=>d.from_id);
-    const duelProfiles=await supabase.from("profiles").select("player_id,username,elo").in("player_id",duelIds);
+    const duelProfiles=await supabase.from("profiles").select("player_id,username,elo,avatar_url").in("player_id",duelIds);
     $("friendRequests").innerHTML += duels.data.map(d=>{
       const u=(duelProfiles.data||[]).find(x=>x.player_id===d.from_id)||{username:"Player",elo:400};
       return `<article class="player-card duel-invite"><div class="player-info"><strong>${escapeHTML(u.username)}</strong><small>Chess duel · ${escapeHTML(d.time_control||"10+0")}</small></div><button class="social-action" data-duel-accept="${d.id}">Accept duel</button></article>`;
@@ -334,7 +335,7 @@ async function loadFriendRequests(){
 async function loadMyProfile(){
   if(!supabase)return;
   const {data}=await supabase.from("profiles").select("*").eq("player_id",playerId).maybeSingle();
-  if(data){$("myUsername").value=data.username||"";$("myBio").value=data.bio||"";}
+  if(data){$("myUsername").value=data.username||"";$("myBio").value=data.bio||"";setMyAvatarPreview(data.avatar_url||"");}
   $("myProfileStats").innerHTML=`<div class="stat-tile"><strong>${playerElo}</strong><small>YOUR ELO</small></div><div class="stat-tile"><strong>${data?.username?escapeHTML(data.username):"New player"}</strong><small>PLAYER PROFILE</small></div>`;
 }
 async function viewPlayer(id){
@@ -409,6 +410,27 @@ document.querySelectorAll(".social-tab").forEach(b=>b.addEventListener("click",(
 $("searchPlayersBtn").onclick=searchPlayers;
 $("playerSearch").addEventListener("keydown",e=>{if(e.key==="Enter")searchPlayers();});
 $("refreshSocialBtn").onclick=refreshSocial;
+function setMyAvatarPreview(url){
+  const img=$("myAvatarPreview"),fallback=$("myAvatarFallback");
+  if(url){img.src=url;img.hidden=false;fallback.hidden=true;}
+  else{img.removeAttribute("src");img.hidden=true;fallback.hidden=false;fallback.textContent=(($("myUsername")?.value||"?").trim()[0]||"?").toUpperCase();}
+}
+$("profilePhotoInput")?.addEventListener("change",async(e)=>{
+  const file=e.target.files?.[0];if(!file)return;
+  if(!file.type.startsWith("image/")){toast("Pilih file gambar.");e.target.value="";return;}
+  if(file.size>2*1024*1024){toast("Ukuran foto maksimal 2 MB.");e.target.value="";return;}
+  if(!supabase){toast("Supabase belum tersambung.");return;}
+  const ext=(file.name.split(".").pop()||"jpg").toLowerCase().replace(/[^a-z0-9]/g,"")||"jpg";
+  const path=`${playerId}/avatar-${Date.now()}.${ext}`;
+  toast("Mengunggah foto profil…");
+  const {error:uploadError}=await supabase.storage.from("profile-photos").upload(path,file,{upsert:true,contentType:file.type,cacheControl:"3600"});
+  if(uploadError){console.warn("Avatar upload:",uploadError);toast("Upload gagal. Pastikan SQL Storage sudah dijalankan.");return;}
+  const {data:publicData}=supabase.storage.from("profile-photos").getPublicUrl(path);
+  const avatarUrl=publicData?.publicUrl;
+  const {error:updateError}=await supabase.from("profiles").update({avatar_url:avatarUrl}).eq("player_id",playerId);
+  if(updateError){console.warn("Avatar profile update:",updateError);toast("Foto terunggah, tetapi profil gagal diperbarui.");return;}
+  setMyAvatarPreview(avatarUrl);toast("Foto profil berhasil diperbarui.");
+});
 $("saveProfileBtn").onclick=async()=>{
   if(!supabase)return socialMessage("Configure Supabase first.");
   const username=$("myUsername").value.trim(),bio=$("myBio").value.trim();
@@ -1137,9 +1159,11 @@ async function loadTournamentLobby() {
     `<div class="tournament-player"><span class="tournament-seed">${i+1}</span><span>${escapeHTML(entry.username||"Player")}</span><small>${Number(entry.elo)||400} ELO</small></div>`
   ).join(""):'<p class="social-empty">Belum ada peserta. Jadilah pendaftar pertama!</p>';
   const joined=list.some(x=>x.player_id===playerId);
-  $("tournamentJoinBtn").disabled=joined||list.length>=32;
-  $("tournamentJoinBtn").textContent=joined?"You are registered":list.length>=32?"Tournament full":"Join next tournament";
-  $("tournamentStatus").textContent=joined?"Pendaftaran berhasil. Kamu terdaftar untuk jadwal berikutnya.":list.length>=32?"Kuota penuh. Pendaftaran ditutup.":"Pendaftaran terbuka sampai waktu mulai.";
+  $("tournamentJoinBtn").hidden=joined;
+  $("tournamentJoinBtn").disabled=list.length>=32;
+  $("tournamentJoinBtn").textContent=list.length>=32?"Tournament full":"Join next tournament";
+  $("tournamentLeaveBtn").hidden=!joined;
+  $("tournamentStatus").textContent=joined?"Kamu sudah terdaftar. Kamu bisa membatalkan pendaftaran sebelum turnamen dimulai.":list.length>=32?"Kuota penuh. Pendaftaran ditutup.":"Pendaftaran terbuka sampai waktu mulai.";
   await loadTournamentTrophies();
 }
 async function joinNextTournament() {
@@ -1155,6 +1179,15 @@ async function joinNextTournament() {
     console.warn("Tournament registration:",error);
     toast(error.code==="23505"?"Kamu sudah terdaftar.":"Pendaftaran gagal. Coba refresh.");
   } else toast("Berhasil mendaftar ke Blitz Tournament!");
+  await loadTournamentLobby();
+}
+async function unregisterTournament(){
+  if(!supabase||!currentTournamentId)return;
+  const confirmed=confirm("Batalkan pendaftaran turnamen berikutnya?");
+  if(!confirmed)return;
+  const {error}=await supabase.from("qm_tournament_entries").delete().eq("tournament_id",currentTournamentId).eq("player_id",playerId);
+  if(error){console.warn("Tournament unregister:",error);toast("Gagal membatalkan pendaftaran.");return;}
+  toast("Pendaftaran turnamen dibatalkan.");
   await loadTournamentLobby();
 }
 async function loadTournamentTrophies() {
@@ -1180,6 +1213,7 @@ function startTournamentTicker() {
   tournamentTimer=setInterval(tick,1000);
 }
 $("tournamentJoinBtn")?.addEventListener("click",joinNextTournament);
+$("tournamentLeaveBtn")?.addEventListener("click",unregisterTournament);
 $("tournamentRefreshBtn")?.addEventListener("click",loadTournamentLobby);
 startTournamentTicker();
 if(supabase)loadTournamentLobby();

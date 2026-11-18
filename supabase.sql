@@ -130,3 +130,25 @@ drop policy if exists "qm tournament trophies demo access" on public.qm_tourname
 create policy "qm tournament trophies demo access" on public.qm_tournament_trophies for all to anon, authenticated using (true) with check (true);
 create index if not exists qm_tournament_entries_event on public.qm_tournament_entries(tournament_id,created_at);
 create index if not exists qm_tournament_trophies_player on public.qm_tournament_trophies(player_id,awarded_at desc);
+
+-- Profile photos: run this section once in Supabase SQL Editor.
+alter table public.profiles add column if not exists avatar_url text;
+insert into storage.buckets (id, name, public, file_size_limit, allowed_mime_types)
+values ('profile-photos', 'profile-photos', true, 2097152, array['image/jpeg','image/png','image/webp','image/gif'])
+on conflict (id) do update set public = true, file_size_limit = 2097152,
+  allowed_mime_types = array['image/jpeg','image/png','image/webp','image/gif'];
+
+drop policy if exists "Profile photos are publicly viewable" on storage.objects;
+create policy "Profile photos are publicly viewable"
+on storage.objects for select to public
+using (bucket_id = 'profile-photos');
+
+drop policy if exists "Players can upload own profile photo" on storage.objects;
+create policy "Players can upload own profile photo"
+on storage.objects for insert to anon, authenticated
+with check (bucket_id = 'profile-photos');
+
+drop policy if exists "Players can update profile photos" on storage.objects;
+create policy "Players can update profile photos"
+on storage.objects for update to anon, authenticated
+using (bucket_id = 'profile-photos') with check (bucket_id = 'profile-photos');

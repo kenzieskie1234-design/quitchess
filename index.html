@@ -133,6 +133,15 @@
           </div>
           <div class="social-pane" id="social-profile">
             <div class="profile-editor">
+              <div class="profile-photo-editor">
+                <img id="myAvatarPreview" class="profile-photo-preview" alt="Profile photo" src="" hidden>
+                <div id="myAvatarFallback" class="profile-photo-fallback">?</div>
+                <div class="profile-photo-controls">
+                  <label for="profilePhotoInput">Profile photo</label>
+                  <input id="profilePhotoInput" type="file" accept="image/*">
+                  <small>Choose a photo from your gallery. Maximum 2 MB.</small>
+                </div>
+              </div>
               <label for="myUsername">Your username</label>
               <input id="myUsername" maxlength="20" placeholder="Choose a username">
               <label for="myBio">About you</label>
@@ -160,6 +169,7 @@
           <p class="tournament-description" id="tournamentDescription">A new 32-player knockout tournament starts every 2 hours. Empty seats will be filled by bots.</p>
           <div class="tournament-actions">
             <button class="room-button" id="tournamentJoinBtn">Join next tournament</button>
+            <button class="copy-button" id="tournamentLeaveBtn" type="button" hidden>Unregister</button>
             <button class="copy-button" id="tournamentRefreshBtn" type="button">Refresh ↻</button>
           </div>
           <div class="tournament-status" id="tournamentStatus">Connect to Supabase to register.</div>
