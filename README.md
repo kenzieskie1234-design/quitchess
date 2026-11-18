@@ -89,3 +89,16 @@ Presence uses a 30-second last_seen heartbeat; a player is shown online for 90 s
 
 ### Catatan penting
 Versi ini masih prototipe tanpa Supabase Auth. Identitas pemain dibuat per browser, dan kebijakan RLS demo masih terbuka. Jangan gunakan untuk kompetisi publik atau menyimpan data sensitif sebelum menambahkan autentikasi, kebijakan RLS ketat, dan validasi hasil pertandingan di server.
+
+
+## Update: Mitten dan menyerah
+- **Mitten** adalah bot latihan mudah (sekitar 350 Elo sebagai label karakter, bukan rating terukur). Ia memakai pencarian dangkal dan variasi langkah lebih besar agar cocok untuk pemula.
+- Tombol **Resign** tersedia saat pertandingan berlangsung. Pada game lokal, menyerah mengakhiri permainan dan bot dinyatakan menang. Pada room online, hasil menyerah disimpan ke `chess_rooms.result` dan `completed_at`.
+- Setelah mengubah file, unggah `index.html`, `styles.css`, dan `app.js` ke repository GitHub lalu commit agar Vercel melakukan deployment ulang.
+
+
+## Perbaikan sinkronisasi duel di HP
+- Room sekarang mendengarkan semua perubahan baris (`event: *`) dan memiliki polling fallback setiap 1,2 detik.
+- Jika Supabase Realtime terlambat atau tidak aktif, aplikasi tetap mencoba mengambil FEN terbaru dari `chess_rooms`.
+- Langkah lokal ditahan sementara saat update database sedang dikirim agar tidak terjadi tabrakan langkah.
+- Untuk hasil terbaik, aktifkan `chess_rooms` pada publication `supabase_realtime`; polling tetap menjadi fallback.

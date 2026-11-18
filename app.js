@@ -497,6 +497,7 @@ function updatePanel() {
 function checkmate(){ return game.isCheckmate(); }
 function onSquare(square) {
   if (resignationResult) return toast("Pertandingan sudah selesai.");
+  if (roomMoveSaving) return toast("Mengirim langkah ke lawan...");
   if (game.isGameOver()) return toast("Game sudah selesai. Mulai game baru untuk bermain lagi.");
   if (!isMyTurn()) return toast("Tunggu giliran lawan.");
   const piece = game.get(square);
@@ -530,8 +531,11 @@ function makeMove(move) {
     playMoveSound(result);
     lastMove = {from:result.from,to:result.to}; selected=null;legalTargets=[];
     render();
-    if (roomId && !isApplyingRemote) saveRoom();
-    else if (!roomId && game.turn()==="b") scheduleBotMove();
+    if (roomId && !isApplyingRemote) {
+      saveRoom();
+    } else if (!roomId && game.turn()==="b") {
+      scheduleBotMove();
+    }
   } catch (e) { toast("Gerakan tidak valid."); }
 }
 $("castleKingBtn").onclick=()=>{
@@ -719,36 +723,104 @@ async function joinRoom(id) {
     render();toast("Connected to room.");
   } catch(e){console.error(e);toast("Room tidak ditemukan atau gagal diakses.");}
 }
-async function connectRoom() {
-  if(channel) await supabase.removeChannel(channel);
-  channel=supabase.channel("chess-room-"+roomId);
-  channel.on("postgres_changes",{event:"UPDATE",schema:"public",table:"chess_rooms",filter:`id=eq.${roomId}`},payload=>{
-    const row=payload.new;
-    if(row.result && String(row.result).toLowerCase().includes("resign")) {
-      resignationResult = row.result; roomRow = row; render(); toast(row.result); return;
+function applyRemoteRoomRow(row) {
+  if (!row) return;
+  if (row.result && String(row.result).toLowerCase().includes("resign")) {
+    resignationResult = row.result;
+    roomRow = row;
+    render();
+    toast(row.result);
+    return;
+  }
+  if (row.fen && row.fen !== game.fen()) {
+    // Never overwrite a move currently being committed by this device.
+    if (roomMoveSaving) return;
+    isApplyingRemote = true;
+    try {
+      const loaded = game.load(row.fen);
+      if (loaded !== false) {
+        roomRow = row;
+        selected = null;
+        legalTargets = [];
+        lastMove = null;
+        render();
+        woodenTap(undefined, 0.88, 0);
+      }
+    } catch (err) {
+      console.error("Could not apply remote chess position:", err);
+    } finally {
+      isApplyingRemote = false;
     }
-    if(row.updated_at===roomRow?.updated_at)return;
-    if(row.fen!==game.fen()) {
-      isApplyingRemote=true;
-      try {game.load(row.fen);woodenTap(undefined,0.88,0);roomRow=row;selected=null;legalTargets=[];lastMove=null;render();}
-      finally {isApplyingRemote=false;}
-    }
-    roomRow=row;
-    if(row.black_id) $("blackCaption").textContent="Connected";
-  }).subscribe(status=>{
-    if(status==="SUBSCRIBED") $("roomStatus").textContent=`Connected · room ${roomId}`;
-  });
-  if(roomRow?.black_id) $("blackCaption").textContent="Connected";
+  } else {
+    roomRow = row;
+  }
+  if (row.black_id) $("blackCaption").textContent = "Connected";
 }
+
+let roomSyncTimer = null;
+let roomMoveSaving = false;
+async function connectRoom() {
+  if (channel) await supabase.removeChannel(channel);
+  if (roomSyncTimer) clearInterval(roomSyncTimer);
+  channel = supabase.channel("chess-room-" + roomId);
+  channel.on("postgres_changes", {
+    event: "*",
+    schema: "public",
+    table: "chess_rooms",
+    filter: `id=eq.${roomId}`
+  }, payload => {
+    if (payload.new) applyRemoteRoomRow(payload.new);
+  }).subscribe(status => {
+    if (status === "SUBSCRIBED") {
+      $("roomStatus").textContent = `Connected · room ${roomId}`;
+    } else if (status === "CHANNEL_ERROR" || status === "TIMED_OUT") {
+      $("roomStatus").textContent = "Realtime terputus · mencoba sinkronisasi otomatis";
+      console.warn("Room realtime status:", status);
+    }
+  });
+
+  // Polling fallback: keeps duel moves synced even if Realtime is delayed/unavailable.
+  roomSyncTimer = setInterval(async () => {
+    if (!roomId || !supabase || roomMoveSaving) return;
+    const { data, error } = await supabase
+      .from("chess_rooms").select("*").eq("id", roomId).maybeSingle();
+    if (error) {
+      console.warn("Room sync polling failed:", error);
+      return;
+    }
+    if (data) applyRemoteRoomRow(data);
+  }, 1200);
+
+  if (roomRow?.black_id) $("blackCaption").textContent = "Connected";
+}
+
 async function saveRoom() {
-  if(!supabase||!roomId)return;
-  const {data,error}=await supabase.from("chess_rooms").update({
-    fen:game.fen(),pgn:game.pgn(),updated_at:new Date().toISOString(),
-    result:resignationResult || (game.isCheckmate()?(game.turn()==="w"?"Black wins":"White wins"):(game.isDraw()?"Draw":null)),
-    completed_at:(game.isGameOver() || !!resignationResult)?new Date().toISOString():null
-  }).eq("id",roomId).select().single();
-  if(error){console.error(error);toast("Gagal menyinkronkan langkah.");}
-  else roomRow=data;
+  if (!supabase || !roomId || isApplyingRemote) return false;
+  roomMoveSaving = true;
+  try {
+    const currentRoomId = roomId;
+    const payload = {
+      fen: game.fen(),
+      pgn: game.pgn(),
+      updated_at: new Date().toISOString(),
+      result: resignationResult || (game.isCheckmate()
+        ? (game.turn() === "w" ? "Black wins" : "White wins")
+        : (game.isDraw() ? "Draw" : null)),
+      completed_at: (game.isGameOver() || !!resignationResult)
+        ? new Date().toISOString() : null
+    };
+    const { data, error } = await supabase
+      .from("chess_rooms").update(payload).eq("id", currentRoomId).select().single();
+    if (error) throw error;
+    if (roomId === currentRoomId) roomRow = data;
+    return true;
+  } catch (error) {
+    console.error("Room move sync failed:", error);
+    toast("Langkah belum terkirim. Periksa koneksi, lalu coba lagi.");
+    return false;
+  } finally {
+    roomMoveSaving = false;
+  }
 }
 $("createRoomBtn").onclick=createRoom;
 $("botChoiceGrid").addEventListener("click",e=>{
