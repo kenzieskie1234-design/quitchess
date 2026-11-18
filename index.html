@@ -1,0 +1,168 @@
+<!doctype html>
+<html lang="id">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <meta name="theme-color" content="#101511" />
+  <title>Quiet Move — Chess Room</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=DM+Mono:wght@400;500&family=DM+Sans:wght@400;500;600;700;800&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="./styles.css" />
+</head>
+<body>
+  <main class="shell">
+    <header class="topbar">
+      <a class="brand" href="#"><span class="brand-mark">Q</span><span>quiet<span class="brand-light">move</span></span></a>
+      <div class="top-actions">
+        <div class="rating-chip"><span class="rating-gem">◆</span><span class="rating-caption">YOUR ELO</span><strong id="playerElo">400</strong></div>
+        <div class="top-meta"><span class="live-dot"></span><span id="connectionLabel">LOCAL GAME</span></div>
+      </div>
+    </header>
+
+    <section class="intro">
+      <div>
+        <p class="eyebrow">THE LITTLE CHESS CLUB</p>
+        <h1>Make your<br><em>next move.</em></h1>
+      </div>
+      <p class="intro-copy">A quiet place for a thoughtful game.<br>Invite someone, take your time.</p>
+    </section>
+
+    <section class="game-layout">
+      <div class="board-column">
+        <div class="player-strip opponent-strip">
+          <div class="avatar black-avatar">♞</div>
+          <div class="player-details"><strong id="blackName">Black</strong><span id="blackCaption">Waiting for opponent</span></div>
+          <span class="turn-indicator" id="blackTurn"></span>
+        </div>
+        <div class="board-frame">
+          <div class="board" id="board" aria-label="Chess board"></div>
+        </div>
+        <div class="player-strip">
+          <div class="avatar white-avatar">♘</div>
+          <div class="player-details"><strong id="whiteName">White</strong><span id="whiteCaption">You are playing locally</span></div>
+          <span class="turn-indicator" id="whiteTurn"></span>
+        </div>
+      </div>
+
+      <aside class="side-panel">
+        <div class="panel-head">
+          <div><p class="eyebrow">CURRENT GAME</p><h2 id="statusTitle">White to move</h2></div>
+          <span class="status-pill" id="statusPill">YOUR TURN</span>
+        </div>
+        <p class="status-description" id="statusDescription">Choose a piece, then select a highlighted square.</p>
+
+        <div class="castling-panel" id="castlingPanel">
+          <div class="section-heading"><span>CASTLING</span><span class="mono">SPECIAL MOVE</span></div>
+          <div class="castling-actions">
+            <button class="castle-button" id="castleKingBtn" type="button" disabled>
+              <span class="castle-symbol">O-O</span>
+              <span class="castle-copy"><strong>Kingside</strong><small>Short castle</small></span>
+            </button>
+            <button class="castle-button" id="castleQueenBtn" type="button" disabled>
+              <span class="castle-symbol">O-O-O</span>
+              <span class="castle-copy"><strong>Queenside</strong><small>Long castle</small></span>
+            </button>
+          </div>
+          <p class="castle-hint" id="castleHint">Castling options appear when the move is legal.</p>
+        </div>
+
+        <div class="move-section">
+          <div class="section-heading"><span>MOVE HISTORY</span><span class="mono" id="moveCount">0 MOVES</span></div>
+          <div class="move-list" id="moveList"><div class="empty-history">Your game starts here.</div></div>
+        </div>
+
+        <div class="actions">
+          <button class="primary-button" id="newGameBtn">New game <span>↗</span></button>
+          <button class="secondary-button" id="flipBtn">Flip board <span>↻</span></button>
+          <button class="secondary-button sound-toggle" id="soundToggle" aria-pressed="true">Sound <span id="soundState">ON ♪</span></button>
+        </div>
+
+        <div class="bot-card">
+          <div class="section-heading"><span>CHOOSE YOUR OPPONENT</span><span class="mono">AI CLUB</span></div>
+          <div class="bot-choice-grid" id="botChoiceGrid">
+            <button class="bot-choice active" data-bot="magnus" type="button"><span class="bot-choice-avatar">M</span><span class="bot-choice-info"><strong>Magnus</strong><small>2882 ELO</small></span><span class="choice-check">✓</span></button>
+            <button class="bot-choice" data-bot="hikaru" type="button"><span class="bot-choice-avatar">H</span><span class="bot-choice-info"><strong>Hikaru</strong><small>2816 ELO</small></span><span class="choice-check">✓</span></button>
+            <button class="bot-choice" data-bot="fischer" type="button"><span class="bot-choice-avatar">B</span><span class="bot-choice-info"><strong>Fischer</strong><small>2785 ELO</small></span><span class="choice-check">✓</span></button>
+            <button class="bot-choice arya-choice" data-bot="arya" type="button"><span class="bot-choice-avatar">A</span><span class="bot-choice-info"><strong>Arya</strong><small>5000 ELO</small></span><span class="choice-check">✓</span></button>
+          </div>
+          <div class="bot-profile" id="botProfile">
+            <div class="bot-avatar" id="botAvatar">M</div>
+            <div class="bot-profile-copy"><strong id="botName">Magnus Carlsen</strong><span id="botDescription">Positional pressure · Elite simulation</span></div>
+            <span class="bot-elo" id="botElo">2882</span>
+          </div>
+          <button class="primary-button bot-start" id="playBotBtn">Play against bot <span>↗</span></button>
+          <p class="bot-note">Unofficial chess-style simulations, not the players’ actual engines or endorsed products. Displayed Elo is a character setting, not a verified playing-strength rating. Arya’s 5000 is fictional.</p>
+        </div>
+
+        <section class="social-card">
+          <div class="social-head"><div><p class="eyebrow">PLAYER NETWORK</p><h3>Community</h3></div><span class="social-count" id="friendCount">0 FRIENDS</span></div>
+          <div class="social-tabs">
+            <button class="social-tab active" data-social-tab="find">Find</button>
+            <button class="social-tab" data-social-tab="friends">Friends</button>
+            <button class="social-tab" data-social-tab="requests">Requests</button>
+            <button class="social-tab" data-social-tab="profile">My profile</button>
+            <button class="social-tab" data-social-tab="history">History</button>
+          </div>
+          <div class="social-pane active" id="social-find">
+            <div class="social-search"><input id="playerSearch" placeholder="Search username or player ID"><button id="searchPlayersBtn">Search</button></div>
+            <div class="social-results" id="searchResults"><p class="social-empty">Search for players to view profiles and send friend requests.</p></div>
+          </div>
+          <div class="social-pane" id="social-friends">
+            <div class="social-results" id="friendsList"><p class="social-empty">Your friends will appear here.</p></div>
+          </div>
+          <div class="social-pane" id="social-requests">
+            <div class="social-results" id="friendRequests"><p class="social-empty">No friend requests loaded.</p></div>
+          </div>
+          <div class="social-pane" id="social-profile">
+            <div class="profile-editor">
+              <label for="myUsername">Your username</label>
+              <input id="myUsername" maxlength="20" placeholder="Choose a username">
+              <label for="myBio">About you</label>
+              <textarea id="myBio" maxlength="120" rows="2" placeholder="A little about your chess journey..."></textarea>
+              <button class="room-button" id="saveProfileBtn">Save profile</button>
+            </div>
+            <div id="myProfileStats" class="profile-stats"></div>
+          </div>
+          <div class="social-pane" id="social-history">
+            <div class="social-results" id="matchHistory"><p class="social-empty">Your completed matches will appear here.</p></div>
+          </div>
+          <div class="social-footer"><span id="socialStatus">Connect Supabase to use player network.</span><button id="refreshSocialBtn" class="social-refresh">Refresh ↻</button></div>
+        </section>
+
+        <div class="online-card matchmaking-card">
+          <div class="online-heading"><span class="online-icon">⚡</span><strong>Quick matchmaking</strong></div>
+          <p>Find an online opponent automatically. If nobody is available, a randomly named bot will take the board.</p>
+          <div class="online-actions">
+            <button id="matchmakingBtn" class="room-button">Find opponent</button>
+            <button id="cancelMatchmakingBtn" class="copy-button" disabled>Cancel</button>
+          </div>
+          <div class="room-status" id="matchmakingStatus">Ready to find a match.</div>
+        </div>
+
+        <div class="online-card">
+          <div class="online-heading"><span class="online-icon">⌁</span><strong>Play with a friend</strong></div>
+          <p>Create a private room and send the invite link. Both players need the same room link.</p>
+          <div class="online-actions">
+            <button id="createRoomBtn" class="room-button">Create room</button>
+            <button id="copyRoomBtn" class="copy-button" disabled>Copy invite</button>
+          </div>
+          <div class="room-status" id="roomStatus">Multiplayer is ready to configure.</div>
+        </div>
+      </aside>
+    </section>
+
+    <footer><span>QUIET MOVE / 001</span><span>PLAY WELL. THINK CLEARLY.</span></footer>
+  </main>
+
+  <div class="toast" id="toast" role="status"></div>
+  <div class="modal-backdrop" id="promotionModal">
+    <div class="promotion-card">
+      <p class="eyebrow">PROMOTION</p><h3>Choose your piece</h3>
+      <div class="promotion-options" id="promotionOptions"></div>
+      <button class="text-button" id="cancelPromotion">Cancel</button>
+    </div>
+  </div>
+  <script type="module" src="./app.js"></script>
+</body>
+</html>
