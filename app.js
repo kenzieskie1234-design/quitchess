@@ -101,7 +101,8 @@ function updateMaterialCount() {
   const diff = totals.w-totals.b;
   $("materialCount").textContent = diff===0 ? "Even" : `${diff>0?"White":"Black"} +${Math.abs(diff)}`;
 }
-\nfunction updateEloDisplay() {
+
+function updateEloDisplay() {
   const el = $("playerElo");
   if (el) el.textContent = String(playerElo);
 }
@@ -626,7 +627,9 @@ $("soundToggle").onclick=()=>{
   if (!soundEnabled) { setSoundEnabled(true); woodenTap(undefined,0.75,0); }
   else setSoundEnabled(false);
 };
-setSoundEnabled(soundEnabled);\nupdateBotProfile();\nresetClock();
+setSoundEnabled(soundEnabled);
+updateBotProfile();
+resetClock();
 $("copyRoomBtn").onclick=async()=>{
   if(!roomId)return;
   const url=new URL(location.href);url.searchParams.set("room",roomId);
