@@ -12,14 +12,15 @@ const playerId = getPlayerId();
 let selected = null, legalTargets = [], flipped = false, lastMove = null;
 let supabase = null, channel = null, roomId = null, myColor = "w";
 let roomRow = null, isApplyingRemote = false, pendingPromotion = null;
-let selectedBot = "magnus", botThinking = false, botTimer = null;
+let selectedBot = "magnus", botThinking = false, botTimer = null, resignationResult = null;
 let playerElo = Number(localStorage.getItem("quietmove-elo") || 400);
 let resultApplied = false;
 const BOT_PROFILES = {
   magnus: {name:"Magnus Carlsen", elo:"2882", style:"Endgame technique · Positional pressure", depth:3, avatar:"M", seed:11},
   hikaru: {name:"Hikaru Nakamura", elo:"2816", style:"Tactical alertness · Dynamic play", depth:3, avatar:"H", seed:23},
   fischer: {name:"Bobby Fischer", elo:"2785", style:"Classical precision · Active pieces", depth:3, avatar:"B", seed:37},
-  arya: {name:"Arya", elo:"5000", style:"Maximum setting · Fictional super-bot", depth:4, avatar:"A", seed:53}
+  arya: {name:"Arya", elo:"5000", style:"Maximum setting · Fictional super-bot", depth:4, avatar:"A", seed:53},
+  mitten: {name:"Mitten", elo:"350", style:"Easy practice · Gentle moves for beginners", depth:1, avatar:"m", seed:71}
 };
 const RANDOM_BOTS = [
   {name:"Adrian Fischer", elo:1180, depth:1, style:"Calm and careful", avatar:"A"},
@@ -327,7 +328,7 @@ function toast(message) {
 }
 function isMyTurn() { return !roomId || game.turn() === myColor; }
 function updateBotProfile() {
-  const bot = BOT_PROFILES[selectedBot];
+  const bot = BOT_PROFILES[selectedBot] || activeRandomBot || BOT_PROFILES.mitten;
   $("botName").textContent = bot.name;
   $("botDescription").textContent = bot.style;
   $("botElo").textContent = bot.elo;
@@ -392,7 +393,7 @@ function chooseBotMove() {
     const next=new Chess(game.fen());next.move(move);
     const score=botSearch(next,bot.depth-1,-Infinity,Infinity,game.turn(),style,budget);
     const noise=selectedBot==="hikaru"&&move.captured?5:0;
-    const total=score+noise+(Math.random()-.5)*(selectedBot==="arya"?0.2:2.5);
+    const total=score+noise+(Math.random()-.5)*(selectedBot==="arya"?0.2:selectedBot==="mitten"?180:2.5);
     if(total>best+0.01){best=total;choices=[move];}
     else if(Math.abs(total-best)<0.01)choices.push(move);
     if(budget.nodes>18000)break;
@@ -402,7 +403,7 @@ function chooseBotMove() {
 function scheduleBotMove() {
   if(roomId||selectedBot==null||game.isGameOver()||game.turn()!=="b"||botThinking)return;
   botThinking=true;
-  $("statusTitle").textContent=BOT_PROFILES[selectedBot].name+" is thinking";
+  $("statusTitle").textContent=(activeRandomBot?.name || BOT_PROFILES[selectedBot]?.name || "Bot")+" is thinking";
   $("statusDescription").textContent="Calculating a reply…";
   $("statusPill").textContent="BOT THINKING";
   $("playBotBtn").disabled=true;
@@ -445,16 +446,18 @@ function render() {
   updatePanel();
 }
 function updatePanel() {
-  const turn = game.turn(), check = game.isCheck(), over = game.isGameOver();
+  const turn = game.turn(), check = game.isCheck(), over = game.isGameOver() || !!resignationResult;
   let title = turn === "w" ? "White to move":"Black to move";
   let description = "Choose a piece, then select a highlighted square.";
   let pill = turn === "w" ? "WHITE TO MOVE":"BLACK TO MOVE";
-  if (checkmate()) { title = "Checkmate"; description = (turn === "w" ? "Black":"White") + " wins the game."; pill = "GAME OVER"; }
+  if (resignationResult) { title = "Game resigned"; description = resignationResult; pill = "GAME OVER"; }
+  else if (checkmate()) { title = "Checkmate"; description = (turn === "w" ? "Black":"White") + " wins the game."; pill = "GAME OVER"; }
   else if (game.isDraw()) { title = "Game drawn"; description = "The position is a draw."; pill = "GAME OVER"; }
   else if (check) { title = "Check"; description = "Your king is under attack. Find a safe move."; pill = "CHECK"; }
   if (roomId && !over && !isMyTurn()) description = "Opponent's turn. Waiting for their move.";
   if (roomId && !over && isMyTurn()) description = "It's your turn. Make a move.";
   $("statusTitle").textContent = title; $("statusDescription").textContent = description; $("statusPill").textContent = pill;
+  if ($("resignBtn")) $("resignBtn").disabled = over || (roomId && !isMyTurn()) || botThinking;
 
   const castleMoves = game.moves({verbose:true}).filter(m => m.flags.includes("k") || m.flags.includes("q"));
   const kingCastle = castleMoves.find(m => m.flags.includes("k"));
@@ -485,14 +488,15 @@ function updatePanel() {
   }
   list.scrollTop = list.scrollHeight;
   $("whiteName").textContent = roomId ? (myColor==="w" ? "You · White":"Opponent · White") : "You · White";
-  $("blackName").textContent = roomId ? (myColor==="b" ? "You · Black":"Opponent · Black") : BOT_PROFILES[selectedBot].name;
+  $("blackName").textContent = roomId ? (myColor==="b" ? "You · Black":"Opponent · Black") : (activeRandomBot?.name || BOT_PROFILES[selectedBot]?.name || "Bot");
   $("whiteCaption").textContent = roomId ? (myColor==="w" ? "Your seat":"Playing online") : "Playing as White";
-  $("blackCaption").textContent = roomId ? (myColor==="b" ? "Your seat":"Playing online") : "AI opponent · "+BOT_PROFILES[selectedBot].elo+" Elo setting";
+  $("blackCaption").textContent = roomId ? (myColor==="b" ? "Your seat":"Playing online") : "AI opponent · "+(activeRandomBot?.elo || BOT_PROFILES[selectedBot]?.elo || "—")+" Elo setting";
   updateEloDisplay();
   if (roomId && over) settleOnlineResult();
 }
 function checkmate(){ return game.isCheckmate(); }
 function onSquare(square) {
+  if (resignationResult) return toast("Pertandingan sudah selesai.");
   if (game.isGameOver()) return toast("Game sudah selesai. Mulai game baru untuk bermain lagi.");
   if (!isMyTurn()) return toast("Tunggu giliran lawan.");
   const piece = game.get(square);
@@ -542,7 +546,7 @@ $("cancelPromotion").onclick=()=>{$("promotionModal").classList.remove("open");p
 $("newGameBtn").onclick=async()=>{
   if(roomId){toast("Keluar dari room untuk memulai game lokal.");return;}
   clearTimeout(botTimer);botThinking=false;$("playBotBtn").disabled=false;
-  game.reset();selected=null;legalTargets=[];lastMove=null;render();toast("New game started.");
+  resignationResult=null; game.reset();selected=null;legalTargets=[];lastMove=null;render();toast("New game started.");
 };
 $("flipBtn").onclick=()=>{flipped=!flipped;render();};
 $("soundToggle").onclick=()=>{
@@ -584,7 +588,7 @@ function startRandomBotMatch() {
   }
   roomId = null; roomRow = null; myColor = "w"; resultApplied = false;
   history.replaceState({}, "", location.pathname);
-  game.reset(); selected = null; legalTargets = []; lastMove = null;
+  resignationResult=null; game.reset(); selected = null; legalTargets = []; lastMove = null;
   $("roomStatus").textContent = `Practice match vs ${bot.name} · You play White.`;
   $("connectionLabel").textContent = "BOT MATCH";
   $("whiteCaption").textContent = "You are White";
@@ -720,6 +724,9 @@ async function connectRoom() {
   channel=supabase.channel("chess-room-"+roomId);
   channel.on("postgres_changes",{event:"UPDATE",schema:"public",table:"chess_rooms",filter:`id=eq.${roomId}`},payload=>{
     const row=payload.new;
+    if(row.result && String(row.result).toLowerCase().includes("resign")) {
+      resignationResult = row.result; roomRow = row; render(); toast(row.result); return;
+    }
     if(row.updated_at===roomRow?.updated_at)return;
     if(row.fen!==game.fen()) {
       isApplyingRemote=true;
@@ -737,8 +744,8 @@ async function saveRoom() {
   if(!supabase||!roomId)return;
   const {data,error}=await supabase.from("chess_rooms").update({
     fen:game.fen(),pgn:game.pgn(),updated_at:new Date().toISOString(),
-    result:game.isCheckmate()?(game.turn()==="w"?"Black wins":"White wins"):(game.isDraw()?"Draw":null),
-    completed_at:game.isGameOver()?new Date().toISOString():null
+    result:resignationResult || (game.isCheckmate()?(game.turn()==="w"?"Black wins":"White wins"):(game.isDraw()?"Draw":null)),
+    completed_at:(game.isGameOver() || !!resignationResult)?new Date().toISOString():null
   }).eq("id",roomId).select().single();
   if(error){console.error(error);toast("Gagal menyinkronkan langkah.");}
   else roomRow=data;
@@ -754,10 +761,39 @@ $("botChoiceGrid").addEventListener("click",e=>{
 $("playBotBtn").onclick=()=>{
   if(roomId){toast("Keluar dari room online sebelum bermain melawan bot.");return;}
   clearTimeout(botTimer);botThinking=false;$("playBotBtn").disabled=false;
-  activeRandomBot=null; game.reset();selected=null;legalTargets=[];lastMove=null;
+  activeRandomBot=null; resignationResult=null; game.reset();selected=null;legalTargets=[];lastMove=null;
   $("roomStatus").textContent="Local bot match · You play White.";
-  render();toast("New match vs "+BOT_PROFILES[selectedBot].name);
+  render();toast("New match vs "+(BOT_PROFILES[selectedBot]?.name || "Mitten"));
 };
+
+$("resignBtn").addEventListener("click", async () => {
+  if (game.isGameOver() || resignationResult) return;
+  if (!confirm("Yakin ingin menyerah dari pertandingan ini?")) return;
+  clearTimeout(botTimer);
+  botThinking = false;
+  const winner = roomId ? (myColor === "w" ? "Black" : "White") : "Black";
+  resignationResult = `${winner} wins by resignation`;
+  selected = null;
+  legalTargets = [];
+  if (roomId && supabase) {
+    const {data,error} = await supabase.from("chess_rooms").update({
+      result: resignationResult,
+      completed_at: new Date().toISOString(),
+      updated_at: new Date().toISOString()
+    }).eq("id",roomId).select().single();
+    if (error) {
+      console.error("Resign update failed:",error);
+      toast("Gagal mengirim status menyerah. Periksa akses database.");
+      resignationResult = null;
+      render();
+      return;
+    }
+    roomRow = data;
+  }
+  render();
+  toast("Kamu menyerah. Pertandingan selesai.");
+});
+
 updateBotProfile();
 updateEloDisplay();
 if(supabase){

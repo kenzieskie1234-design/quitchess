@@ -315,3 +315,18 @@ footer{border-color:rgba(255,255,255,.12)}
 .social-footer{display:flex;justify-content:space-between;align-items:center;gap:8px;border-top:1px solid #ffffff14;padding-top:10px;margin-top:5px;font-size:8px;color:#9aaba1}
 .social-footer a{color:#c8f5e2}.social-refresh{border:0;background:none;color:#c8f5e2;font-size:9px;white-space:nowrap}
 @media(max-width:520px){.social-card{padding:13px}.social-tab{padding:7px 8px}.player-card{gap:7px}}
+
+
+/* Mitten easy bot and resignation control */
+.mitten-choice .bot-choice-avatar {
+  background: linear-gradient(145deg, #d9e8d5, #9ebc9a);
+  color: #263d2a;
+}
+.resign-button {
+  border-color: rgba(220, 115, 115, .38);
+  color: #ffd0cc;
+}
+.resign-button:disabled {
+  opacity: .38;
+  cursor: not-allowed;
+}
