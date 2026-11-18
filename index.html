@@ -82,18 +82,33 @@
         <div class="bot-card">
           <div class="section-heading"><span>CHOOSE YOUR OPPONENT</span><span class="mono">AI CLUB</span></div>
           <div class="bot-choice-grid" id="botChoiceGrid">
-            <button class="bot-choice active" data-bot="magnus" type="button"><span class="bot-choice-avatar">M</span><span class="bot-choice-info"><strong>Magnus</strong><small>2882 ELO</small></span><span class="choice-check">✓</span></button>
+            <button class="bot-choice" data-bot="magnus" type="button"><span class="bot-choice-avatar">M</span><span class="bot-choice-info"><strong>Magnus</strong><small>2882 ELO</small></span><span class="choice-check">✓</span></button>
             <button class="bot-choice" data-bot="hikaru" type="button"><span class="bot-choice-avatar">H</span><span class="bot-choice-info"><strong>Hikaru</strong><small>2816 ELO</small></span><span class="choice-check">✓</span></button>
             <button class="bot-choice" data-bot="fischer" type="button"><span class="bot-choice-avatar">B</span><span class="bot-choice-info"><strong>Fischer</strong><small>2785 ELO</small></span><span class="choice-check">✓</span></button>
             <button class="bot-choice arya-choice" data-bot="arya" type="button"><span class="bot-choice-avatar">A</span><span class="bot-choice-info"><strong>Arya</strong><small>5000 ELO</small></span><span class="choice-check">✓</span></button>
             <button class="bot-choice mitten-choice" data-bot="mitten" type="button"><span class="bot-choice-avatar">m</span><span class="bot-choice-info"><strong>Mitten</strong><small>350 ELO · EASY</small></span><span class="choice-check">✓</span></button>
           </div>
           <div class="bot-profile" id="botProfile">
-            <div class="bot-avatar" id="botAvatar">M</div>
-            <div class="bot-profile-copy"><strong id="botName">Magnus Carlsen</strong><span id="botDescription">Positional pressure · Elite simulation</span></div>
-            <span class="bot-elo" id="botElo">2882</span>
+            <div class="bot-avatar" id="botAvatar">?</div>
+            <div class="bot-profile-copy"><strong id="botName">No opponent selected</strong><span id="botDescription">Choose an AI opponent to continue</span></div>
+            <span class="bot-elo" id="botElo">—</span>
           </div>
-          <button class="primary-button bot-start" id="playBotBtn">Play against bot <span>↗</span></button>
+          <div class="time-control">
+            <div class="section-heading"><span>TIME CONTROL</span><span class="mono">CHOOSE FORMAT</span></div>
+            <div class="time-options" id="timeOptions">
+              <button type="button" class="time-option active" data-base="180" data-increment="2"><strong>Blitz</strong><small>3 | 2</small></button>
+              <button type="button" class="time-option" data-base="600" data-increment="0"><strong>Rapid</strong><small>10 | 0</small></button>
+              <button type="button" class="time-option" data-base="900" data-increment="10"><strong>Rapid</strong><small>15 | 10</small></button>
+            </div>
+          </div>
+          <div class="match-info">
+            <div class="clock-row">
+              <div class="clock-box active" id="blackClockBox"><small>BLACK</small><strong id="blackClock">03:00</strong></div>
+              <div class="clock-box" id="whiteClockBox"><small>WHITE</small><strong id="whiteClock">03:00</strong></div>
+            </div>
+            <div class="material-row"><span>MATERIAL ADVANTAGE</span><strong id="materialCount">Even</strong></div>
+          </div>
+          <button class="primary-button bot-start" id="playBotBtn" disabled>Choose an opponent first <span>↗</span></button>
           <p class="bot-note">Unofficial chess-style simulations, not the players’ actual engines or endorsed products. Displayed Elo is a character setting, not a verified playing-strength rating. Arya’s 5000 is fictional.</p>
         </div>
 

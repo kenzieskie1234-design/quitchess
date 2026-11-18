@@ -374,3 +374,22 @@ footer{border-color:rgba(255,255,255,.12)}
   footer { gap:12px; align-items:flex-start; }
   .footer-right { flex-direction:column; align-items:flex-end; gap:4px; }
 }
+
+/* Time controls, chess clocks and material count */
+.time-control{margin-top:16px;padding-top:14px;border-top:1px solid rgba(255,255,255,.10)}
+.time-options{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:7px;margin-top:10px}
+.time-option{border:1px solid rgba(255,255,255,.13);background:rgba(255,255,255,.035);color:var(--text);border-radius:10px;padding:10px 6px;text-align:center;cursor:pointer;transition:.2s}
+.time-option strong,.time-option small{display:block}
+.time-option strong{font-size:12px}
+.time-option small{font:10px "DM Mono",monospace;color:var(--muted);margin-top:4px}
+.time-option.active{border-color:#b7d4b8;background:rgba(183,212,184,.13);box-shadow:inset 0 0 0 1px rgba(183,212,184,.10)}
+.match-info{margin:13px 0}
+.clock-row{display:grid;grid-template-columns:1fr 1fr;gap:8px}
+.clock-box{background:rgba(0,0,0,.20);border:1px solid rgba(255,255,255,.10);border-radius:10px;padding:9px 11px}
+.clock-box small{display:block;font:9px "DM Mono",monospace;letter-spacing:1px;color:var(--muted)}
+.clock-box strong{display:block;font:700 23px "DM Mono",monospace;margin-top:3px}
+.clock-box.active{border-color:#b7d4b8;background:rgba(183,212,184,.10)}
+.material-row{display:flex;align-items:center;justify-content:space-between;padding:10px 2px 0;font:9px "DM Mono",monospace;letter-spacing:.7px;color:var(--muted)}
+.material-row strong{font-size:11px;color:var(--text);letter-spacing:0}
+.bot-choice:not(.active){opacity:.88}
+@media(max-width:420px){.time-option{padding:9px 3px}.clock-box strong{font-size:20px}}

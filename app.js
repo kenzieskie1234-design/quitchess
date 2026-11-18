@@ -12,7 +12,9 @@ const playerId = getPlayerId();
 let selected = null, legalTargets = [], flipped = false, lastMove = null;
 let supabase = null, channel = null, roomId = null, myColor = "w";
 let roomRow = null, isApplyingRemote = false, pendingPromotion = null;
-let selectedBot = "magnus", botThinking = false, botTimer = null, resignationResult = null;
+let selectedBot = null, botThinking = false, botTimer = null, resignationResult = null;
+let selectedTimeBase = 180, selectedIncrement = 2, whiteTime = 180, blackTime = 180;
+let clockInterval = null, clockStarted = false, clockExpired = false;
 let playerElo = Number(localStorage.getItem("quietmove-elo") || 400);
 let resultApplied = false;
 const BOT_PROFILES = {
@@ -46,7 +48,60 @@ if (SUPABASE_URL.startsWith("https://") && !SUPABASE_ANON_KEY.startsWith("YOUR_"
   $("roomStatus").textContent = "Tambahkan kredensial Supabase untuk mengaktifkan Mabar.";
 }
 
-function updateEloDisplay() {
+
+const PIECE_VALUES = {p:1,n:3,b:3,r:5,q:9,k:0};
+function formatClock(seconds) {
+  const safe = Math.max(0, Math.ceil(seconds));
+  return `${String(Math.floor(safe/60)).padStart(2,"0")}:${String(safe%60).padStart(2,"0")}`;
+}
+function paintClocks() {
+  if (!$("whiteClock")) return;
+  $("whiteClock").textContent = formatClock(whiteTime);
+  $("blackClock").textContent = formatClock(blackTime);
+  $("whiteClockBox").classList.toggle("active", clockStarted && game.turn()==="w" && !game.isGameOver());
+  $("blackClockBox").classList.toggle("active", clockStarted && game.turn()==="b" && !game.isGameOver());
+}
+function stopClock() {
+  if (clockInterval) clearInterval(clockInterval);
+  clockInterval = null;
+}
+function resetClock() {
+  stopClock();
+  whiteTime = selectedTimeBase;
+  blackTime = selectedTimeBase;
+  clockStarted = false;
+  clockExpired = false;
+  paintClocks();
+}
+function startClock() {
+  if (clockStarted || clockExpired) return;
+  clockStarted = true;
+  stopClock();
+  clockInterval = setInterval(() => {
+    if (game.isGameOver() || resignationResult || clockExpired) { stopClock(); return; }
+    if (game.turn()==="w") whiteTime = Math.max(0, whiteTime-0.1);
+    else blackTime = Math.max(0, blackTime-0.1);
+    if (whiteTime<=0 || blackTime<=0) {
+      clockExpired = true;
+      stopClock();
+      resignationResult = whiteTime<=0 ? "Black wins on time" : "White wins on time";
+      toast(resignationResult);
+    }
+    paintClocks();
+  },100);
+}
+function addMoveIncrement(color) {
+  if (!clockStarted || !selectedIncrement) return;
+  if (color==="w") whiteTime += selectedIncrement;
+  else blackTime += selectedIncrement;
+}
+function updateMaterialCount() {
+  const totals = {w:0,b:0};
+  for (const row of game.board()) for (const piece of row) if (piece) totals[piece.color] += PIECE_VALUES[piece.type] || 0;
+  const diff = totals.w-totals.b;
+  $("materialCount").textContent = diff===0 ? "Even" : `${diff>0?"White":"Black"} +${Math.abs(diff)}`;
+}
+\nfunction updateEloDisplay() {
   const el = $("playerElo");
   if (el) el.textContent = String(playerElo);
 }
@@ -384,7 +439,7 @@ function botSearch(position, depth, alpha, beta, maximizingColor, style, budget)
   return best;
 }
 function chooseBotMove() {
-  const bot=activeRandomBot || BOT_PROFILES[selectedBot], moves=game.moves({verbose:true});
+  const bot=activeRandomBot || BOT_PROFILES[selectedBot] || BOT_PROFILES.mitten, moves=game.moves({verbose:true});
   if(!moves.length)return null;
   const style=activeRandomBot ? "classical" : (selectedBot==="hikaru"?"tactical":selectedBot==="magnus"?"endgame":"classical");
   const budget={nodes:0};
@@ -560,7 +615,7 @@ $("soundToggle").onclick=()=>{
   if (!soundEnabled) { setSoundEnabled(true); woodenTap(undefined,0.75,0); }
   else setSoundEnabled(false);
 };
-setSoundEnabled(soundEnabled);
+setSoundEnabled(soundEnabled);\nupdateBotProfile();\nresetClock();
 $("copyRoomBtn").onclick=async()=>{
   if(!roomId)return;
   const url=new URL(location.href);url.searchParams.set("room",roomId);
@@ -946,4 +1001,14 @@ document.addEventListener("keydown", event => {
     creditsModal.classList.remove("open");
     creditsModal.setAttribute("aria-hidden", "true");
   }
+});
+
+$("timeOptions").addEventListener("click", (event) => {
+  const option = event.target.closest("[data-base]");
+  if (!option) return;
+  selectedTimeBase = Number(option.dataset.base);
+  selectedIncrement = Number(option.dataset.increment);
+  $("timeOptions").querySelectorAll(".time-option").forEach(btn => btn.classList.toggle("active", btn===option));
+  resetClock();
+  toast(`Time control: ${option.querySelector("strong").textContent} ${option.querySelector("small").textContent}`);
 });
