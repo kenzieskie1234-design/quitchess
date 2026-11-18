@@ -393,3 +393,32 @@ footer{border-color:rgba(255,255,255,.12)}
 .material-row strong{font-size:11px;color:var(--text);letter-spacing:0}
 .bot-choice:not(.active){opacity:.88}
 @media(max-width:420px){.time-option{padding:9px 3px}.clock-box strong{font-size:20px}}
+
+
+/* Quiet Move Blitz Tournament lobby */
+.tournament-card{margin-top:13px;padding:17px;border-radius:15px;background:linear-gradient(145deg,rgba(221,238,229,.15),rgba(255,255,255,.045));border:1px solid rgba(211,241,224,.2);box-shadow:0 16px 45px #0003,inset 0 1px 0 #ffffff20;backdrop-filter:blur(24px);-webkit-backdrop-filter:blur(24px)}
+.tournament-top{display:flex;align-items:center;justify-content:space-between;gap:10px}
+.tournament-top .eyebrow{margin:0 0 5px}.tournament-top h3{margin:0;font-size:19px}
+.tournament-badge{font:9px "DM Mono";letter-spacing:1px;color:#d9f6e7;border:1px solid #b9f3df55;background:#b9f3df15;border-radius:20px;padding:7px 9px;white-space:nowrap}
+.tournament-countdown{display:flex;align-items:center;justify-content:space-between;gap:10px;margin:17px 0 10px;padding:13px;border-radius:10px;background:#07110e55;border:1px solid #ffffff12}
+.tournament-countdown small{display:block;font:8px "DM Mono";letter-spacing:1px;color:#a9b9b0}
+.tournament-countdown strong{display:block;font:700 24px "DM Mono";color:#e4f7ec;margin-top:5px}
+.tournament-cycle{text-align:right}.tournament-cycle strong{font-size:17px}
+.tournament-progress{height:5px;background:#ffffff15;border-radius:9px;overflow:hidden}.tournament-progress span{display:block;height:100%;width:0;background:#b9f3df;transition:width .25s}
+.tournament-description{font-size:10px;line-height:1.6;color:#afc0b6;margin:12px 0}
+.tournament-actions{display:flex;gap:7px}.tournament-actions button{flex:1}
+.tournament-status{font-size:9px;color:#c9eddb;margin:10px 0}
+.tournament-roster{display:grid;gap:5px;max-height:210px;overflow:auto;margin-top:9px}
+.tournament-player{display:flex;align-items:center;gap:8px;padding:8px 9px;border:1px solid #ffffff12;background:#ffffff07;border-radius:8px;font-size:9px;color:#e4eee8}
+.tournament-player>span:nth-child(2){flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.tournament-player small{font:8px "DM Mono";color:#9eb1a6}
+.tournament-seed{width:20px;height:20px;display:grid;place-items:center;border-radius:6px;background:#b9f3df20;color:#d7f7e8;font:9px "DM Mono"}
+.tournament-trophies{display:flex;align-items:center;justify-content:space-between;border-top:1px solid #ffffff15;margin-top:14px;padding-top:12px}
+.tournament-trophies>div{display:flex;align-items:center;gap:9px}
+.tournament-trophies strong{font:700 16px "DM Mono";color:#e9d69e}
+.trophy-icon{font-size:19px}
+.tournament-trophies span+span{display:flex;flex-direction:column;gap:3px}
+.tournament-trophies span+span strong{font:600 10px "DM Sans";color:#e4eee8}
+.tournament-trophies span+span small{font-size:8px;color:#9fb0a6}
+.trophy-row .trophy-icon{font-size:15px}
+@media(max-width:520px){.tournament-card{padding:13px}.tournament-countdown strong{font-size:21px}.tournament-actions{flex-direction:column}}

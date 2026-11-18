@@ -116,3 +116,7 @@ Versi ini masih prototipe tanpa Supabase Auth. Identitas pemain dibuat per brows
 - Developer ditampilkan sebagai **Arya**.
 - Panel dapat ditutup dengan tombol ×, mengetuk area luar panel, atau tombol Escape.
 - Perubahan tampilan berada di `index.html` dan `styles.css`; interaksi berada di `app.js`.
+
+
+## Blitz Tournament
+Run the latest `supabase.sql` once in Supabase SQL Editor to create the two-hour tournament registration and trophy tables. The current web update provides the upcoming tournament lobby, 32-player registration list, and player trophy display. Full bracket execution and verified tournament match progression are not yet implemented in this lobby update.

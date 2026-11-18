@@ -17,6 +17,7 @@ let selectedTimeBase = 180, selectedIncrement = 2, whiteTime = 180, blackTime = 
 let clockInterval = null, clockStarted = false, clockExpired = false;
 let playerElo = Number(localStorage.getItem("quietmove-elo") || 400);
 let resultApplied = false;
+let localMatchId = null;
 const BOT_PROFILES = {
   magnus: {name:"Magnus Carlsen", elo:"2882", style:"Endgame technique · Positional pressure", depth:3, avatar:"M", seed:11},
   hikaru: {name:"Hikaru Nakamura", elo:"2816", style:"Tactical alertness · Dynamic play", depth:3, avatar:"H", seed:23},
@@ -86,6 +87,7 @@ function startClock() {
       stopClock();
       resignationResult = whiteTime<=0 ? "Black wins on time" : "White wins on time";
       toast(resignationResult);
+      render();
     }
     paintClocks();
   },100);
@@ -106,28 +108,79 @@ function updateEloDisplay() {
   const el = $("playerElo");
   if (el) el.textContent = String(playerElo);
 }
-function settleOnlineResult() {
-  if (!roomId || !game.isGameOver() || resultApplied) return;
-  const key = "quietmove-result-" + roomId;
-  if (localStorage.getItem(key)) { resultApplied = true; return; }
-  resultApplied = true;
-  let delta = 0, label = "Draw · Elo unchanged";
-  if (game.isCheckmate()) {
-    const winner = game.turn() === "w" ? "b" : "w";
-    if (winner === myColor) {
-      const fullMoves = Math.max(1, Math.ceil(game.history().length / 2));
-      delta = Math.max(15, Math.min(80, 82 - fullMoves * 2));
-      label = `Victory · +${delta} Elo`;
-    } else {
-      delta = -15;
-      label = "Defeat · −15 Elo";
+function eloExpectedScore(playerRating, opponentRating) {
+  return 1 / (1 + Math.pow(10, (opponentRating - playerRating) / 400));
+}
+async function getCurrentOpponentRating() {
+  if (roomId && supabase) {
+    const opponentId = myColor === "w" ? roomRow?.black_id : roomRow?.white_id;
+    if (opponentId) {
+      const {data, error} = await supabase.from("profiles").select("elo").eq("player_id", opponentId).maybeSingle();
+      if (!error && Number(data?.elo) > 0) return Number(data.elo);
     }
+    return 400;
   }
+  const bot = activeRandomBot || BOT_PROFILES[selectedBot];
+  return Number(bot?.elo) || 400;
+}
+function getLocalMatchOutcome() {
+  if (game.isDraw() || (!game.isCheckmate() && !resignationResult && !clockExpired)) return null;
+  if (game.isCheckmate()) {
+    const winnerColor = game.turn() === "w" ? "b" : "w";
+    return (roomId ? winnerColor === myColor : winnerColor === "w") ? 1 : 0;
+  }
+  if (clockExpired) {
+    const winnerIsWhite = String(resignationResult || "").toLowerCase().includes("black wins");
+    return (roomId ? (winnerIsWhite ? myColor === "w" : myColor === "b") : winnerIsWhite) ? 1 : 0;
+  }
+  if (resignationResult) {
+    const text = String(resignationResult).toLowerCase();
+    const winnerIsWhite = text.includes("white wins");
+    const winnerIsBlack = text.includes("black wins");
+    if (winnerIsWhite || winnerIsBlack) {
+      const winnerColor = winnerIsWhite ? "w" : "b";
+      return (roomId ? winnerColor === myColor : winnerColor === "w") ? 1 : 0;
+    }
+    // The resign button is only available to the local player.
+    return 0;
+  }
+  return null;
+}
+async function settleMatchElo() {
+  const finished = game.isGameOver() || !!resignationResult || !!clockExpired;
+  if (!finished || resultApplied) return;
+  const matchKey = roomId ? `quietmove-result-${roomId}` : `quietmove-result-${localMatchId || "local"}`;
+  if (localStorage.getItem(matchKey)) { resultApplied = true; return; }
+  resultApplied = true;
+
+  const outcome = getLocalMatchOutcome();
+  let delta = 0;
+  let label = "Draw · Elo unchanged";
+  if (outcome !== null) {
+    const opponentRating = await getCurrentOpponentRating();
+    const expected = eloExpectedScore(playerElo, opponentRating);
+    // K=24: rating changes are based on opponent strength, not a fixed win/loss amount.
+    delta = Math.round(24 * (outcome - expected));
+    if (outcome === 1) label = `Victory · +${delta} Elo`;
+    else label = `Defeat · ${delta} Elo`;
+  }
+
   playerElo = Math.max(100, playerElo + delta);
   localStorage.setItem("quietmove-elo", String(playerElo));
-  localStorage.setItem(key, label);
+  localStorage.setItem(matchKey, label);
   updateEloDisplay();
-  toast(label);
+
+  if (supabase) {
+    const username = localStorage.getItem("quietmove-username") || ("Player" + playerId.slice(0,5));
+    const {error} = await supabase.from("profiles").upsert({
+      player_id: playerId,
+      username,
+      elo: playerElo,
+      last_seen: new Date().toISOString()
+    }, {onConflict:"player_id"});
+    if (error) console.warn("Could not sync Elo to profile:", error);
+  }
+  toast(`${label} · Your Elo: ${playerElo}`);
 }
 
 let soundEnabled = localStorage.getItem("quietmove-sound") !== "off";
@@ -510,7 +563,7 @@ function render() {
   updatePanel();
 }
 function updatePanel() {
-  const turn = game.turn(), check = game.isCheck(), over = game.isGameOver() || !!resignationResult;
+  const turn = game.turn(), check = game.isCheck(), over = game.isGameOver() || !!resignationResult || !!clockExpired;
   let title = turn === "w" ? "White to move":"Black to move";
   let description = "Choose a piece, then select a highlighted square.";
   let pill = turn === "w" ? "WHITE TO MOVE":"BLACK TO MOVE";
@@ -556,7 +609,7 @@ function updatePanel() {
   $("whiteCaption").textContent = roomId ? (myColor==="w" ? "Your seat":"Playing online") : "Playing as White";
   $("blackCaption").textContent = roomId ? (myColor==="b" ? "Your seat":"Playing online") : "AI opponent · "+(activeRandomBot?.elo || BOT_PROFILES[selectedBot]?.elo || "—")+" Elo setting";
   updateEloDisplay();
-  if (roomId && over) settleOnlineResult();
+  if (over) settleMatchElo();
 }
 function checkmate(){ return game.isCheckmate(); }
 function onSquare(square) {
@@ -657,6 +710,7 @@ function startRandomBotMatch() {
   stopMatchmaking();
   const bot = RANDOM_BOTS[Math.floor(Math.random() * RANDOM_BOTS.length)];
   activeRandomBot = {...bot, depth:bot.depth, seed:Math.floor(Math.random()*9999)};
+  localMatchId = crypto.randomUUID(); resultApplied = false;
   selectedBot = "random";
   if (roomId && channel && supabase) {
     supabase.removeChannel(channel);
@@ -787,6 +841,8 @@ function resetBoardForFreshGame() {
   $("playBotBtn").disabled = false;
   activeRandomBot = null;
   resignationResult = null;
+  localMatchId = null;
+  resultApplied = false;
   game.reset();
   resetClock();
   selected = null;
@@ -808,7 +864,7 @@ async function createRoom() {
       id,fen:game.fen(),pgn:game.pgn(),white_id:playerId,black_id:null,updated_at:new Date().toISOString()
     }).select().single();
     if(error)throw error;
-    roomRow=data;roomId=id;myColor="w";resultApplied=false;await connectRoom();
+    roomRow=data;roomId=id;myColor="w";resultApplied=false;localMatchId=null;await connectRoom();
     history.replaceState({}, "", `?room=${id}`);
     $("roomStatus").textContent=`Room ${id} dibuat. Bagikan invite link ke teman.`;
     $("copyRoomBtn").disabled=false;$("connectionLabel").textContent="ONLINE · ROOM "+id;
@@ -830,7 +886,7 @@ async function joinRoom(id) {
       else {const retry=await supabase.from("chess_rooms").select("*").eq("id",id).single();data=retry.data;if(data.black_id===playerId)myColor="b";else return toast("Room sudah penuh.");}
     } else return toast("Room sudah penuh. Maksimal dua pemain.");
     if (roomId && roomId !== id) await leaveCurrentRoom();
-    roomId=id;roomRow=data;resultApplied=false;resignationResult=null;
+    roomId=id;roomRow=data;resultApplied=false;localMatchId=null;resignationResult=null;
     game.load(data.fen);selected=null;legalTargets=[];lastMove=null;
     await connectRoom();
     $("roomStatus").textContent=`Joined room ${id} as ${myColor==="w"?"White":"Black"}.`;
@@ -950,6 +1006,7 @@ $("playBotBtn").onclick=()=>{
   if(!selectedBot){toast("Pilih lawan AI terlebih dahulu.");return;}
   clearTimeout(botTimer);botThinking=false;
   activeRandomBot=null; resignationResult=null; game.reset();selected=null;legalTargets=[];lastMove=null;
+  localMatchId = crypto.randomUUID(); resultApplied = false;
   resetClock(); startClock();
   $("roomStatus").textContent="Local bot match · You play White.";
   render();toast("New match vs "+BOT_PROFILES[selectedBot].name);
@@ -1031,3 +1088,99 @@ $("timeOptions")?.addEventListener("click", (event) => {
   resetClock();
   toast(`Time control: ${option.querySelector("strong").textContent} ${option.querySelector("small").textContent}`);
 });
+
+
+/* Two-hour Blitz tournament lobby (registration + shared participant roster). */
+const TOURNAMENT_INTERVAL_MS = 2 * 60 * 60 * 1000;
+let tournamentTimer = null;
+let currentTournamentId = null;
+function getNextTournamentStart(now=Date.now()) {
+  return (Math.floor(now / TOURNAMENT_INTERVAL_MS) + 1) * TOURNAMENT_INTERVAL_MS;
+}
+function tournamentIdFor(startMs) {
+  return "qm-blitz-" + Math.floor(startMs / TOURNAMENT_INTERVAL_MS);
+}
+function formatTournamentCountdown(ms) {
+  const sec=Math.max(0,Math.floor(ms/1000));
+  return `${String(Math.floor(sec/3600)).padStart(2,"0")}:${String(Math.floor(sec%3600/60)).padStart(2,"0")}:${String(sec%60).padStart(2,"0")}`;
+}
+async function loadTournamentLobby() {
+  if (!supabase) {
+    $("tournamentStatus").textContent="Supabase belum tersambung. Turnamen online belum tersedia.";
+    $("tournamentJoinBtn").disabled=true;
+    return;
+  }
+  const startMs=getNextTournamentStart();
+  const startIso=new Date(startMs).toISOString();
+  const id=tournamentIdFor(startMs);
+  currentTournamentId=id;
+  const {error:upsertError}=await supabase.from("qm_tournaments").upsert({
+    id,starts_at:startIso,status:"registration"
+  },{onConflict:"id",ignoreDuplicates:true});
+  if(upsertError) {
+    console.warn("Tournament lobby setup:",upsertError);
+    $("tournamentStatus").textContent="Tabel turnamen belum siap. Jalankan SQL update turnamen.";
+    $("tournamentJoinBtn").disabled=true;
+    return;
+  }
+  const {data:entries,error}=await supabase.from("qm_tournament_entries")
+    .select("player_id,username,elo,created_at")
+    .eq("tournament_id",id).order("created_at",{ascending:true}).limit(32);
+  if(error) {
+    $("tournamentStatus").textContent="Gagal memuat peserta. Periksa izin tabel turnamen.";
+    return;
+  }
+  const list=entries||[];
+  $("tournamentPlayers").textContent=`${list.length} / 32`;
+  $("tournamentProgress").style.width=`${Math.min(100,list.length/32*100)}%`;
+  $("tournamentRoster").innerHTML=list.length?list.map((entry,i)=>
+    `<div class="tournament-player"><span class="tournament-seed">${i+1}</span><span>${escapeHTML(entry.username||"Player")}</span><small>${Number(entry.elo)||400} ELO</small></div>`
+  ).join(""):'<p class="social-empty">Belum ada peserta. Jadilah pendaftar pertama!</p>';
+  const joined=list.some(x=>x.player_id===playerId);
+  $("tournamentJoinBtn").disabled=joined||list.length>=32;
+  $("tournamentJoinBtn").textContent=joined?"You are registered":list.length>=32?"Tournament full":"Join next tournament";
+  $("tournamentStatus").textContent=joined?"Pendaftaran berhasil. Kamu terdaftar untuk jadwal berikutnya.":list.length>=32?"Kuota penuh. Pendaftaran ditutup.":"Pendaftaran terbuka sampai waktu mulai.";
+  await loadTournamentTrophies();
+}
+async function joinNextTournament() {
+  if(!supabase)return toast("Supabase belum tersambung.");
+  const startMs=getNextTournamentStart();
+  const id=tournamentIdFor(startMs);
+  const username=localStorage.getItem("quietmove-username")||("Player"+playerId.slice(0,5));
+  $("tournamentJoinBtn").disabled=true;
+  const {error}=await supabase.from("qm_tournament_entries").insert({
+    tournament_id:id,player_id:playerId,username,elo:playerElo
+  });
+  if(error) {
+    console.warn("Tournament registration:",error);
+    toast(error.code==="23505"?"Kamu sudah terdaftar.":"Pendaftaran gagal. Coba refresh.");
+  } else toast("Berhasil mendaftar ke Blitz Tournament!");
+  await loadTournamentLobby();
+}
+async function loadTournamentTrophies() {
+  if(!supabase)return;
+  const {data,error}=await supabase.from("qm_tournament_trophies")
+    .select("id,tournament_id,placement,awarded_at")
+    .eq("player_id",playerId).order("awarded_at",{ascending:false}).limit(20);
+  if(error)return;
+  const trophies=data||[];
+  $("tournamentTrophyCount").textContent=String(trophies.length);
+  $("tournamentMyTrophies").innerHTML=trophies.length?trophies.map(t=>
+    `<div class="tournament-player trophy-row"><span class="trophy-icon">🏆</span><span>Blitz Champion</span><small>${new Date(t.awarded_at).toLocaleDateString()}</small></div>`
+  ).join(""):'<p class="social-empty">Belum ada piala. Menangkan turnamen untuk mengoleksinya.</p>';
+}
+function startTournamentTicker() {
+  if(tournamentTimer)clearInterval(tournamentTimer);
+  const tick=()=>{
+    const remaining=getNextTournamentStart()-Date.now();
+    $("tournamentCountdown").textContent=formatTournamentCountdown(remaining);
+    if(remaining<=1000)loadTournamentLobby();
+  };
+  tick();
+  tournamentTimer=setInterval(tick,1000);
+}
+$("tournamentJoinBtn")?.addEventListener("click",joinNextTournament);
+$("tournamentRefreshBtn")?.addEventListener("click",loadTournamentLobby);
+startTournamentTicker();
+if(supabase)loadTournamentLobby();
+

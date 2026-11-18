@@ -147,6 +147,30 @@
           <div class="social-footer"><span id="socialStatus">Connect Supabase to use player network.</span><button id="refreshSocialBtn" class="social-refresh">Refresh ↻</button></div>
         </section>
 
+        <section class="tournament-card" id="tournamentCard">
+          <div class="tournament-top">
+            <div><p class="eyebrow">QUIET MOVE ARENA</p><h3>Blitz Tournament</h3></div>
+            <span class="tournament-badge">3 | 2 BLITZ</span>
+          </div>
+          <div class="tournament-countdown">
+            <div><small>NEXT TOURNAMENT STARTS IN</small><strong id="tournamentCountdown">--:--:--</strong></div>
+            <div class="tournament-cycle"><strong id="tournamentPlayers">0 / 32</strong><small>REGISTERED</small></div>
+          </div>
+          <div class="tournament-progress"><span id="tournamentProgress"></span></div>
+          <p class="tournament-description" id="tournamentDescription">A new 32-player knockout tournament starts every 2 hours. Empty seats will be filled by bots.</p>
+          <div class="tournament-actions">
+            <button class="room-button" id="tournamentJoinBtn">Join next tournament</button>
+            <button class="copy-button" id="tournamentRefreshBtn" type="button">Refresh ↻</button>
+          </div>
+          <div class="tournament-status" id="tournamentStatus">Connect to Supabase to register.</div>
+          <div class="tournament-roster" id="tournamentRoster"><p class="social-empty">Tournament participants will appear here.</p></div>
+          <div class="tournament-trophies">
+            <div><span class="trophy-icon">🏆</span><span><strong>Hall of Champions</strong><small>Titles saved to your player profile</small></span></div>
+            <strong id="tournamentTrophyCount">0</strong>
+          </div>
+          <div class="tournament-roster" id="tournamentMyTrophies"><p class="social-empty">Your tournament trophies will appear here.</p></div>
+        </section>
+
         <div class="online-card matchmaking-card">
           <div class="online-heading"><span class="online-icon">⚡</span><strong>Quick matchmaking</strong></div>
           <p>Find an online opponent automatically. If nobody is available, a randomly named bot will take the board.</p>
