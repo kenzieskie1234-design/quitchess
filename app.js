@@ -91,18 +91,26 @@ async function initStockfish() {
     const wasmUrl=STOCKFISH_BASE+"stockfish-19-lite-single.wasm";
     const bootstrap=`self.Module={locateFile:function(path){return path.endsWith('.wasm')?${JSON.stringify(wasmUrl)}:path;}};importScripts(${JSON.stringify(jsUrl)});`;
     const blobUrl=URL.createObjectURL(new Blob([bootstrap],{type:"text/javascript"}));
+    // Do not revoke the Blob URL immediately. Some mobile browsers start loading
+    // the Worker asynchronously and fail if its URL is revoked too early.
     stockfishWorker=new Worker(blobUrl);
-    URL.revokeObjectURL(blobUrl);
     stockfishWorker.onmessage=e=>stockfishMessage(e);
-    stockfishWorker.onerror=()=>{
+    stockfishWorker.onerror=(event)=>{
+      stockfishAvailable=false;
+      const detail=event?.message||"Worker script/WASM tidak dapat dimuat.";
+      const pending=stockfishWaiters.splice(0);
+      pending.forEach(w=>{clearTimeout(w.timer);w.reject(new Error("Stockfish Worker gagal dimuat: "+detail));});
+    };
+    stockfishWorker.onmessageerror=()=>{
       stockfishAvailable=false;
       const pending=stockfishWaiters.splice(0);
-      pending.forEach(w=>{clearTimeout(w.timer);w.reject(new Error("Stockfish Worker gagal dimuat."));});
+      pending.forEach(w=>{clearTimeout(w.timer);w.reject(new Error("Pesan dari Stockfish Worker tidak dapat dibaca."));});
     };
     stockfishWorker.postMessage("uci");
     await waitStockfish(x=>x.includes("uciok"),30000);
     stockfishWorker.postMessage("isready");
     await waitStockfish(x=>x.includes("readyok"),30000);
+    URL.revokeObjectURL(blobUrl);
     return true;
   })().catch(error=>{stockfishAvailable=false; stockfishInitPromise=null; throw error;});
   return stockfishInitPromise;
