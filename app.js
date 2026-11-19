@@ -46,12 +46,27 @@ const MATCHMAKING_WAIT_MS = 15000;
 // The single-threaded build avoids SharedArrayBuffer / COOP-COEP requirements.
 const STOCKFISH_BASE = "https://cdn.jsdelivr.net/npm/stockfish@19.0.1/bin/";
 let stockfishWorker = null, stockfishInitPromise = null, stockfishWaiters = [];
+let stockfishQueue = Promise.resolve();
+let stockfishSearchId = 0;
 let stockfishAvailable = true;
 let adminLoggedIn = false, adminAutoPlay = false, adminBestMove = null, adminAnalysisBusy = false, adminAutoBusy = false;
 let adminInfoLines = [];
+let adminCollectInfo = false;
+let moveQualityByPly = {};
+let qualityAnalysisToken = 0;
+let stockfishQualityLines = [];
+function withStockfishLock(task) {
+  const run = stockfishQueue.then(task, task);
+  stockfishQueue = run.catch(() => {});
+  return run;
+}
+function stopStockfishSearch() {
+  if (stockfishWorker) stockfishWorker.postMessage("stop");
+}
 function stockfishMessage(line) {
   const text = String(line?.data ?? line ?? "");
-  if (text.startsWith("info ")) adminInfoLines.push(text);
+  if (adminCollectInfo && text.startsWith("info ")) adminInfoLines.push(text);
+  if (text.startsWith("info ")) stockfishQualityLines.push(text);
   for (const waiter of [...stockfishWaiters]) {
     if (waiter.test(text)) {
       stockfishWaiters = stockfishWaiters.filter(x => x !== waiter);
@@ -79,7 +94,11 @@ async function initStockfish() {
     stockfishWorker=new Worker(blobUrl);
     URL.revokeObjectURL(blobUrl);
     stockfishWorker.onmessage=e=>stockfishMessage(e);
-    stockfishWorker.onerror=()=>{stockfishAvailable=false;};
+    stockfishWorker.onerror=()=>{
+      stockfishAvailable=false;
+      const pending=stockfishWaiters.splice(0);
+      pending.forEach(w=>{clearTimeout(w.timer);w.reject(new Error("Stockfish Worker gagal dimuat."));});
+    };
     stockfishWorker.postMessage("uci");
     await waitStockfish(x=>x.includes("uciok"),30000);
     stockfishWorker.postMessage("isready");
@@ -89,29 +108,86 @@ async function initStockfish() {
   return stockfishInitPromise;
 }
 async function stockfishMove(fen, bot) {
+  return withStockfishLock(async () => {
+    await initStockfish();
+    const rating=Math.max(350,Number(bot?.elo)||400);
+    // One principal variation is faster and more useful for move selection.
+    const profiles = rating<650 ? {skill:0,depth:5,time:220} :
+      rating<950 ? {skill:2,depth:7,time:300} :
+      rating<1200 ? {skill:5,depth:9,time:380} :
+      rating<1500 ? {skill:8,depth:11,time:480} :
+      rating<1800 ? {skill:11,depth:13,time:600} :
+      rating<2200 ? {skill:15,depth:15,time:750} :
+      rating<2800 ? {skill:19,depth:17,time:950} :
+      {skill:20,depth:19,time:1200};
+    const limited=rating>=1320;
+    const elo=Math.max(1320,Math.min(3190,rating));
+    stockfishWorker.postMessage("stop");
+    stockfishWorker.postMessage("setoption name UCI_LimitStrength value "+(limited?"true":"false"));
+    if(limited) stockfishWorker.postMessage("setoption name UCI_Elo value "+elo);
+    stockfishWorker.postMessage("setoption name Skill Level value "+profiles.skill);
+    stockfishWorker.postMessage("setoption name MultiPV value 1");
+    stockfishWorker.postMessage("position fen "+fen);
+    stockfishWorker.postMessage("go depth "+profiles.depth+" movetime "+profiles.time);
+    const response=await waitStockfish(x=>x.includes("bestmove "),profiles.time+12000);
+    const match=response.match(/bestmove\s+([a-h][1-8][a-h][1-8][qrbn]?)/);
+    if(!match) return null;
+    return {from:match[1].slice(0,2),to:match[1].slice(2,4),promotion:match[1][4]||undefined};
+  });
+}
+
+
+function parseEngineScore(lines) {
+  let best=null;
+  for(const line of lines){
+    if(!line.startsWith("info ")) continue;
+    const depth=Number((line.match(/\bdepth (\d+)/)||[])[1]||0);
+    const score=(line.match(/\bscore (cp|mate) (-?\d+)/)||[]);
+    if(!score)continue;
+    let cp=score[1]==="mate"?(Number(score[2])>0?10000:-10000):Number(score[2]);
+    if(!best||depth>=best.depth)best={depth,cp};
+  }
+  return best;
+}
+async function engineQuickPosition(fen, depth=9, movetime=220) {
   await initStockfish();
-  const rating=Math.max(350,Number(bot?.elo)||400);
-  const profiles = rating<650 ? {skill:0,multi:5,depth:5,time:250} :
-    rating<950 ? {skill:2,multi:4,depth:7,time:350} :
-    rating<1200 ? {skill:5,multi:3,depth:9,time:450} :
-    rating<1500 ? {skill:8,multi:2,depth:11,time:550} :
-    rating<1800 ? {skill:11,multi:2,depth:13,time:650} :
-    rating<2200 ? {skill:15,multi:1,depth:15,time:800} :
-    rating<2800 ? {skill:19,multi:1,depth:17,time:1000} :
-    {skill:20,multi:1,depth:19,time:1200};
-  const limited=rating>=1320;
-  const elo=Math.max(1320,Math.min(3190,rating));
-  stockfishWorker.postMessage("stop");
-  stockfishWorker.postMessage("setoption name UCI_LimitStrength value "+(limited?"true":"false"));
-  if(limited) stockfishWorker.postMessage("setoption name UCI_Elo value "+elo);
-  stockfishWorker.postMessage("setoption name Skill Level value "+profiles.skill);
-  stockfishWorker.postMessage("setoption name MultiPV value "+profiles.multi);
+  stockfishQualityLines=[];
+  stockfishWorker.postMessage("setoption name UCI_LimitStrength value false");
+  stockfishWorker.postMessage("setoption name Skill Level value 20");
+  stockfishWorker.postMessage("setoption name MultiPV value 1");
   stockfishWorker.postMessage("position fen "+fen);
-  stockfishWorker.postMessage("go depth "+profiles.depth+" movetime "+profiles.time);
-  const response=await waitStockfish(x=>x.includes("bestmove "),profiles.time+15000);
-  const match=response.match(/bestmove\s+([a-h][1-8][a-h][1-8][qrbn]?)/);
-  if(!match) return null;
-  return {from:match[1].slice(0,2),to:match[1].slice(2,4),promotion:match[1][4]||undefined};
+  stockfishWorker.postMessage(`go depth ${depth} movetime ${movetime}`);
+  const response=await waitStockfish(x=>x.includes("bestmove "),movetime+8000);
+  const bestMove=(response.match(/bestmove\s+([a-h][1-8][a-h][1-8][qrbn]?)/)||[])[1]||null;
+  const score=parseEngineScore(stockfishQualityLines);
+  if(!score)throw new Error("Stockfish belum mengirim evaluasi posisi.");
+  const turn=fen.split(/\s+/)[1];
+  return {bestMove, whiteCp:turn==="w"?score.cp:-score.cp, depth:score.depth};
+}
+function qualityLabel(loss, matchesBest) {
+  if(matchesBest)return {label:"Best",symbol:"★",className:"best"};
+  if(loss<=12)return {label:"Excellent",symbol:"‼",className:"excellent"};
+  if(loss<=35)return {label:"Good",symbol:"✓",className:"good"};
+  if(loss<=80)return {label:"Inaccuracy",symbol:"?!",className:"inaccuracy"};
+  if(loss<=180)return {label:"Mistake",symbol:"?",className:"mistake"};
+  return {label:"Blunder",symbol:"??",className:"blunder"};
+}
+function analyzeMoveQuality(beforeFen, afterFen, moveUci, movingColor, ply) {
+  const token=++qualityAnalysisToken;
+  moveQualityByPly[ply]={label:"Analyzing",symbol:"…",className:"pending"};
+  render();
+  withStockfishLock(async()=>{
+    const before=await engineQuickPosition(beforeFen,8,180);
+    const after=await engineQuickPosition(afterFen,8,180);
+    const swing=movingColor==="w"?before.whiteCp-after.whiteCp:after.whiteCp-before.whiteCp;
+    const loss=Math.max(0,swing);
+    const result=qualityLabel(loss,before.bestMove===moveUci);
+    moveQualityByPly[ply]={...result,loss:Math.round(loss),depth:Math.min(before.depth,after.depth)};
+  }).then(()=>{render();}).catch(error=>{
+    console.warn("Move quality analysis unavailable:",error);
+    delete moveQualityByPly[ply];
+    if(token===qualityAnalysisToken)render();
+  });
 }
 
 
@@ -157,24 +233,36 @@ async function analyzeAdminPosition() {
   if(roomId && game.turn()!==myColor)return toast("Tunggu giliranmu sebelum menganalisis posisi multiplayer.");
   if(game.isGameOver())return toast("Permainan sudah selesai.");
   if(adminAnalysisBusy)return;
-  adminAnalysisBusy=true;adminBestMove=null;$("adminAnalyzeBtn").disabled=true;$("adminPlayBestBtn").disabled=true;$("adminBestMove").textContent="Stockfish sedang menganalisis...";
+  adminAnalysisBusy=true;adminBestMove=null;adminInfoLines=[];$("adminAnalyzeBtn").disabled=true;$("adminPlayBestBtn").disabled=true;$("adminBestMove").textContent="Stockfish sedang menganalisis...";
+  const analyzedFen=game.fen();
   try{
-    await initStockfish();adminInfoLines=[];
-    stockfishWorker.postMessage("stop");
-    stockfishWorker.postMessage("setoption name UCI_LimitStrength value false");
-    stockfishWorker.postMessage("setoption name MultiPV value 3");
-    stockfishWorker.postMessage("position fen "+game.fen());
-    stockfishWorker.postMessage("go depth 14 movetime 1800");
-    const best=await waitStockfish(x=>x.includes("bestmove "),20000);
-    const match=best.match(/bestmove\s+([a-h][1-8][a-h][1-8][qrbn]?)/);
-    const rows=parseAdminAnalysis(adminInfoLines);
-    if(!match)throw new Error("Stockfish tidak mengembalikan langkah.");
-    const uci=match[1];adminBestMove={from:uci.slice(0,2),to:uci.slice(2,4),promotion:uci[4]||undefined,fen:game.fen()};
-    const score=rows[0]?(rows[0].scoreType==="mate"?"mate "+rows[0].score:(rows[0].score/100).toFixed(2)):"evaluasi tersedia";
-    $("adminBestMove").textContent=`Best move: ${uci.slice(0,2)} → ${uci.slice(2,4)} · depth ${rows[0]?.depth||14} · ${score}`;
-    $("adminPlayBestBtn").disabled=false;
-  }catch(error){console.error(error);$("adminBestMove").textContent="Analisis gagal. Periksa koneksi Stockfish.";toast("Stockfish gagal menganalisis posisi.");}
-  finally{adminAnalysisBusy=false;$("adminAnalyzeBtn").disabled=false;}
+    await withStockfishLock(async()=>{
+      await initStockfish();
+      adminInfoLines=[];adminCollectInfo=true;
+      stockfishWorker.postMessage("stop");
+      stockfishWorker.postMessage("setoption name UCI_LimitStrength value false");
+      stockfishWorker.postMessage("setoption name Skill Level value 20");
+      stockfishWorker.postMessage("setoption name MultiPV value 3");
+      stockfishWorker.postMessage("position fen "+analyzedFen);
+      stockfishWorker.postMessage("go depth 18 movetime 2600");
+      const best=await waitStockfish(x=>x.includes("bestmove "),18000);
+      const match=best.match(/bestmove\s+([a-h][1-8][a-h][1-8][qrbn]?)/);
+      adminCollectInfo=false;
+      const allRows=parseAdminAnalysis(adminInfoLines).filter(r=>r.depth>0);
+      const deepest=Math.max(0,...allRows.map(r=>r.depth));
+      const rows=allRows.filter(r=>r.depth===deepest).sort((a,b)=>a.multipv-b.multipv);
+      if(!match)throw new Error("Stockfish tidak mengembalikan langkah.");
+      if(game.fen()!==analyzedFen)throw new Error("Posisi berubah selama analisis. Jalankan analisis ulang.");
+      const uci=match[1];
+      adminBestMove={from:uci.slice(0,2),to:uci.slice(2,4),promotion:uci[4]||undefined,fen:analyzedFen};
+      const scoreRow=rows.find(r=>r.uci===uci)||rows[0];
+      const score=scoreRow?(scoreRow.scoreType==="mate"?"mate "+scoreRow.score:(scoreRow.score/100).toFixed(2)):"evaluasi tersedia";
+      const alternatives=rows.slice(0,3).map((r,i)=>`${i+1}. ${r.uci} (${r.scoreType==="mate"?"M"+r.score:(r.score/100).toFixed(2)})`).join(" · ");
+      $("adminBestMove").textContent=`Best move: ${uci.slice(0,2)} → ${uci.slice(2,4)} · depth ${scoreRow?.depth||18} · ${score}${alternatives?" | Kandidat: "+alternatives:""}`;
+      $("adminPlayBestBtn").disabled=false;
+    });
+  }catch(error){adminCollectInfo=false;console.error(error);$("adminBestMove").textContent=error.message||"Analisis gagal. Periksa koneksi Stockfish.";toast("Analisis Stockfish gagal atau posisi berubah.");}
+  finally{adminCollectInfo=false;adminAnalysisBusy=false;$("adminAnalyzeBtn").disabled=false;}
 }
 function adminPlayBest() {
   if(!adminLoggedIn||!adminBestMove)return;
@@ -785,6 +873,11 @@ function render() {
     if (piece) {
       const p = document.createElement("span"); p.className = "piece " + (piece.color === "w" ? "white":"black");
       p.textContent = glyph[piece.color][piece.type]; el.appendChild(p);
+      const plyNow=game.history().length;
+      const quality=moveQualityByPly[plyNow];
+      if(lastMove && lastMove.to===square && quality){
+        const badge=document.createElement("span");badge.className="move-quality-badge "+quality.className;badge.textContent=quality.symbol;badge.title=quality.label+(quality.loss!==undefined?` · eval loss ${quality.loss/100} pawns`:"");el.appendChild(badge);
+      }
     }
     if (targetSet.has(square)) {
       const marker = document.createElement("span");
@@ -917,8 +1010,13 @@ function makeMove(move) {
   }
   try {
     const movingColor = game.turn();
+    const beforeFen=game.fen();
     const result = game.move({from:move.from,to:move.to,promotion:move.promotion});
     if (!result) return;
+    const afterFen=game.fen();
+    const ply=game.history().length;
+    const moveUci=result.from+result.to+(result.promotion||"");
+    if(!game.isGameOver()) analyzeMoveQuality(beforeFen,afterFen,moveUci,movingColor,ply);
     addMoveIncrement(movingColor);
     playMoveSound(result);
     lastMove = {from:result.from,to:result.to}; selected=null;legalTargets=[];
@@ -1118,6 +1216,7 @@ function resetBoardForFreshGame() {
   localMatchId = null;
   resultApplied = false;
   game.reset();
+  moveQualityByPly = {}; qualityAnalysisToken++;
   resetClock();
   selected = null;
   legalTargets = [];

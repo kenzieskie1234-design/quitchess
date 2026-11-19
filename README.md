@@ -160,3 +160,11 @@ Admin tidak lagi memakai password lokal browser. Login memakai Supabase Auth dan
 6. Login pada panel PRIVATE ADMIN memakai email dan password Supabase Auth tadi.
 
 Hanya UUID yang dimasukkan ke `public.qm_admin_owners` yang dapat lolos pemeriksaan owner. Jangan pernah memasukkan service_role key ke frontend. Jangan membagikan password owner. Untuk mencabut akses, hapus baris UUID owner dari `public.qm_admin_owners`.
+
+## Stockfish performance update
+- Bot searches now use one principal variation (MultiPV 1) to reduce unnecessary work and improve response time.
+- Bot search settings are tiered by the selected opponent's displayed Elo using depth, move-time budget, and Stockfish skill/limit-strength options.
+- Admin analysis uses a deeper search (depth 18, up to 2.6 seconds) and MultiPV 3, displaying the best line and up to two alternatives from the deepest completed iteration.
+- Bot and Admin requests share a serialized engine queue. This prevents overlapping UCI commands from interrupting each other on the single Stockfish Worker.
+- Admin analysis results are discarded if the board position changes before analysis completes.
+- The Stockfish Lite single-threaded WASM build is loaded from jsDelivr, so an internet connection is still required to fetch the engine. It is not bundled locally in this ZIP.
