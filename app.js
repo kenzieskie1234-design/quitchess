@@ -608,7 +608,14 @@ function toast(message) {
   const el = $("toast"); el.textContent = message; el.classList.add("show");
   clearTimeout(toast.timer); toast.timer = setTimeout(() => el.classList.remove("show"), 2300);
 }
-function isMyTurn() { return !roomId || game.turn() === myColor; }
+function isMyTurn() {
+  // Online: only the seat assigned to this browser may move.
+  if (roomId) return game.turn() === myColor;
+  // Local bot match: the human controls White; Black is reserved for the bot.
+  // Local free-play (no bot selected) remains two-sided.
+  if (selectedBot !== null) return game.turn() === "w" && !botThinking;
+  return true;
+}
 function updateBotProfile() {
   const bot = BOT_PROFILES[selectedBot] || activeRandomBot;
   $("botName").textContent = bot?.name || "No opponent selected";
@@ -743,15 +750,20 @@ function scheduleBotMove() {
   $("statusDescription").textContent="Calculating a reply…";
   $("statusPill").textContent="BOT THINKING";
   $("playBotBtn").disabled=true;
+  const botTurnFen = game.fen();
   botTimer=setTimeout(async()=>{
-    const move=await chooseBotMove();
-    if(move) {
-      const movingColor = game.turn();
-      const result=game.move({from:move.from,to:move.to,promotion:move.promotion});
-      if(result){addMoveIncrement(movingColor);playMoveSound(result);lastMove={from:result.from,to:result.to};}
+    try {
+      const move=await chooseBotMove();
+      // Discard stale engine output if the board changed while the bot was thinking.
+      if(move && !roomId && game.turn()==="b" && game.fen()===botTurnFen) {
+        const movingColor = game.turn();
+        const result=game.move({from:move.from,to:move.to,promotion:move.promotion});
+        if(result){addMoveIncrement(movingColor);playMoveSound(result);lastMove={from:result.from,to:result.to};}
+      }
+    } finally {
+      botThinking=false;$("playBotBtn").disabled=false;render();
+      if(adminAutoPlay && game.turn()==="w") setTimeout(adminAutoMoveIfNeeded,250);
     }
-    botThinking=false;$("playBotBtn").disabled=false;render();
-    if(adminAutoPlay && game.turn()===(roomId?myColor:"w")) setTimeout(adminAutoMoveIfNeeded,250);
   },getBotStrength(activeRandomBot || BOT_PROFILES[selectedBot] || BOT_PROFILES.mitten).think);
 }
 function render() {
@@ -867,6 +879,7 @@ function scheduleReturnToHome() {
 }
 function checkmate(){ return game.isCheckmate(); }
 function onSquare(square) {
+  if (!isMyTurn()) return toast(roomId ? "Tunggu giliran lawan." : "Bot sedang berpikir. Kamu hanya bisa menggerakkan bidak Putih.");
   if (clockExpired) return toast("Waktu habis. Pertandingan selesai.");
   if (resignationResult) return toast("Pertandingan sudah selesai.");
   if (roomMoveSaving) return toast("Mengirim langkah ke lawan...");
@@ -897,6 +910,11 @@ function showPromotion(move) {
   modal.classList.add("open");
 }
 function makeMove(move) {
+  // Central guard: blocks accidental opponent-piece moves in bot and online games.
+  if (!isApplyingRemote && !isMyTurn()) {
+    toast(roomId ? "Tunggu giliranmu." : "Sekarang giliran bot. Kamu tidak bisa menggerakkan bidak Hitam.");
+    return;
+  }
   try {
     const movingColor = game.turn();
     const result = game.move({from:move.from,to:move.to,promotion:move.promotion});
