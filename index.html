@@ -72,6 +72,18 @@
           <div class="move-list" id="moveList"><div class="empty-history">Your game starts here.</div></div>
         </div>
 
+        <div class="admin-card" id="adminCard">
+          <div class="section-heading"><span>PRIVATE ADMIN</span><span class="mono">ENGINE TOOLS</span></div>
+          <div class="admin-login-row"><input id="adminEmail" type="email" autocomplete="username" placeholder="Email akun owner"><input id="adminPassword" type="password" autocomplete="current-password" placeholder="Password Supabase Auth"><button id="adminLoginBtn" type="button">Login owner</button></div>
+          <p class="admin-note" id="adminStatus">Login admin untuk melihat rekomendasi langkah Stockfish.</p>
+          <div class="admin-tools" id="adminTools" hidden>
+            <div class="admin-bestmove" id="adminBestMove">Best move: belum dianalisis</div>
+            <div class="admin-actions"><button id="adminAnalyzeBtn" type="button">Analyze position</button><button id="adminPlayBestBtn" type="button" disabled>Play best move</button></div>
+            <label class="admin-auto"><input id="adminAutoPlay" type="checkbox"> Auto-play best move setiap giliran saya</label>
+            <button class="admin-logout" id="adminLogoutBtn" type="button">Logout admin</button>
+          </div>
+        </div>
+
         <div class="actions">
           <button class="primary-button" id="newGameBtn">New game <span>↗</span></button>
           <button class="secondary-button" id="flipBtn">Flip board <span>↻</span></button>
@@ -109,7 +121,7 @@
             <div class="material-row"><span>MATERIAL ADVANTAGE</span><strong id="materialCount">Even</strong></div>
           </div>
           <button class="primary-button bot-start" id="playBotBtn" disabled>Choose an opponent first <span>↗</span></button>
-          <p class="bot-note">Unofficial chess-style simulations, not the players’ actual engines or endorsed products. Displayed Elo is a character setting, not a verified playing-strength rating. Arya’s 5000 is fictional.</p>
+          <p class="bot-note">Powered by Stockfish 19 Lite (single-threaded WebAssembly). Bot Elo controls skill, search depth, and thinking time; displayed ratings are difficulty settings, not verified official ratings. Arya’s 5000 is fictional.</p>
         </div>
 
         <section class="social-card">

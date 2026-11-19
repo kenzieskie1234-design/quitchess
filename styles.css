@@ -433,3 +433,8 @@ footer{border-color:rgba(255,255,255,.12)}
 .profile-photo-controls small{opacity:.65;font-size:11px}
 .player-avatar-img{width:42px;height:42px;border-radius:50%;object-fit:cover;flex:0 0 42px}
 [hidden]{display:none !important}
+
+
+/* Private admin engine panel */
+.admin-card{margin:14px 0;padding:14px;border:1px solid #b9f3df30;border-radius:12px;background:linear-gradient(145deg,#10231c,#0b1511)}
+.admin-login-row,.admin-actions{display:flex;gap:8px;align-items:center}.admin-login-row input{flex:1;min-width:0;border:1px solid #ffffff25;background:#07110e;color:#eef8f1;border-radius:7px;padding:10px;font:11px "DM Sans"}.admin-login-row button,.admin-actions button{border:1px solid #b9f3df55;background:#b9f3df;color:#102019;border-radius:7px;padding:10px 12px;font:700 10px "DM Sans"}.admin-note{font-size:10px;color:#91a49a;line-height:1.5;margin:9px 0 0}.admin-tools{margin-top:12px}.admin-tools[hidden]{display:none}.admin-bestmove{padding:10px;border-radius:7px;background:#07110e;color:#d6f5e8;font:11px "DM Mono",monospace;margin-bottom:9px}.admin-auto{display:flex;align-items:center;gap:8px;color:#b7c8bf;font-size:10px;margin:12px 0}.admin-logout{border:0;background:transparent;color:#91a49a;font:10px "DM Sans";padding:5px 0;text-decoration:underline}.admin-actions button:disabled{opacity:.4}.admin-auto input{accent-color:#b9f3df}

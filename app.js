@@ -18,6 +18,8 @@ let clockInterval = null, clockStarted = false, clockExpired = false;
 let playerElo = Number(localStorage.getItem("quietmove-elo") || 400);
 let resultApplied = false;
 let localMatchId = null;
+let finishReturnTimer = null;
+let finishReturnScheduled = false;
 const BOT_PROFILES = {
   magnus: {name:"Magnus Carlsen", elo:"2882", style:"Endgame technique · Positional pressure", depth:3, avatar:"M", seed:11},
   hikaru: {name:"Hikaru Nakamura", elo:"2816", style:"Tactical alertness · Dynamic play", depth:3, avatar:"H", seed:23},
@@ -39,6 +41,155 @@ const RANDOM_BOTS = [
 ];
 let activeRandomBot = null, matchmakingTimer = null, matchmakingPoll = null, matchmakingActive = false;
 const MATCHMAKING_WAIT_MS = 15000;
+
+// Stockfish 19 Lite single-threaded. Loaded lazily in a dedicated Worker.
+// The single-threaded build avoids SharedArrayBuffer / COOP-COEP requirements.
+const STOCKFISH_BASE = "https://cdn.jsdelivr.net/npm/stockfish@19.0.1/bin/";
+let stockfishWorker = null, stockfishInitPromise = null, stockfishWaiters = [];
+let stockfishAvailable = true;
+let adminLoggedIn = false, adminAutoPlay = false, adminBestMove = null, adminAnalysisBusy = false, adminAutoBusy = false;
+let adminInfoLines = [];
+function stockfishMessage(line) {
+  const text = String(line?.data ?? line ?? "");
+  if (text.startsWith("info ")) adminInfoLines.push(text);
+  for (const waiter of [...stockfishWaiters]) {
+    if (waiter.test(text)) {
+      stockfishWaiters = stockfishWaiters.filter(x => x !== waiter);
+      clearTimeout(waiter.timer); waiter.resolve(text);
+    }
+  }
+}
+function waitStockfish(test, timeout=20000) {
+  return new Promise((resolve,reject)=>{
+    const waiter={test,resolve,reject,timer:setTimeout(()=>{
+      stockfishWaiters=stockfishWaiters.filter(x=>x!==waiter); reject(new Error("Stockfish timeout"));
+    },timeout)};
+    stockfishWaiters.push(waiter);
+  });
+}
+async function initStockfish() {
+  if (stockfishInitPromise) return stockfishInitPromise;
+  stockfishInitPromise=(async()=>{
+    // A Blob bootstrap lets the Worker import the engine while locateFile points
+    // the WASM loader at the matching CDN asset.
+    const jsUrl=STOCKFISH_BASE+"stockfish-19-lite-single.js";
+    const wasmUrl=STOCKFISH_BASE+"stockfish-19-lite-single.wasm";
+    const bootstrap=`self.Module={locateFile:function(path){return path.endsWith('.wasm')?${JSON.stringify(wasmUrl)}:path;}};importScripts(${JSON.stringify(jsUrl)});`;
+    const blobUrl=URL.createObjectURL(new Blob([bootstrap],{type:"text/javascript"}));
+    stockfishWorker=new Worker(blobUrl);
+    URL.revokeObjectURL(blobUrl);
+    stockfishWorker.onmessage=e=>stockfishMessage(e);
+    stockfishWorker.onerror=()=>{stockfishAvailable=false;};
+    stockfishWorker.postMessage("uci");
+    await waitStockfish(x=>x.includes("uciok"),30000);
+    stockfishWorker.postMessage("isready");
+    await waitStockfish(x=>x.includes("readyok"),30000);
+    return true;
+  })().catch(error=>{stockfishAvailable=false; stockfishInitPromise=null; throw error;});
+  return stockfishInitPromise;
+}
+async function stockfishMove(fen, bot) {
+  await initStockfish();
+  const rating=Math.max(350,Number(bot?.elo)||400);
+  const profiles = rating<650 ? {skill:0,multi:5,depth:5,time:250} :
+    rating<950 ? {skill:2,multi:4,depth:7,time:350} :
+    rating<1200 ? {skill:5,multi:3,depth:9,time:450} :
+    rating<1500 ? {skill:8,multi:2,depth:11,time:550} :
+    rating<1800 ? {skill:11,multi:2,depth:13,time:650} :
+    rating<2200 ? {skill:15,multi:1,depth:15,time:800} :
+    rating<2800 ? {skill:19,multi:1,depth:17,time:1000} :
+    {skill:20,multi:1,depth:19,time:1200};
+  const limited=rating>=1320;
+  const elo=Math.max(1320,Math.min(3190,rating));
+  stockfishWorker.postMessage("stop");
+  stockfishWorker.postMessage("setoption name UCI_LimitStrength value "+(limited?"true":"false"));
+  if(limited) stockfishWorker.postMessage("setoption name UCI_Elo value "+elo);
+  stockfishWorker.postMessage("setoption name Skill Level value "+profiles.skill);
+  stockfishWorker.postMessage("setoption name MultiPV value "+profiles.multi);
+  stockfishWorker.postMessage("position fen "+fen);
+  stockfishWorker.postMessage("go depth "+profiles.depth+" movetime "+profiles.time);
+  const response=await waitStockfish(x=>x.includes("bestmove "),profiles.time+15000);
+  const match=response.match(/bestmove\s+([a-h][1-8][a-h][1-8][qrbn]?)/);
+  if(!match) return null;
+  return {from:match[1].slice(0,2),to:match[1].slice(2,4),promotion:match[1][4]||undefined};
+}
+
+
+function updateAdminUI() {
+  const tools=$("adminTools"); if(!tools)return;
+  tools.hidden=!adminLoggedIn;
+  $("adminEmail").hidden=adminLoggedIn; $("adminPassword").hidden=adminLoggedIn; $("adminLoginBtn").hidden=adminLoggedIn;
+  $("adminStatus").textContent=adminLoggedIn?"Owner terverifikasi oleh Supabase. Admin tools aktif pada giliran akun ini.":"Login menggunakan akun Supabase Auth yang sudah didaftarkan sebagai owner melalui SQL.";
+  $("adminAutoPlay").checked=adminAutoPlay;
+}
+async function verifyAdminSession() {
+  if(!supabase)return;
+  const {data:{session}}=await supabase.auth.getSession();
+  if(!session){adminLoggedIn=false;updateAdminUI();return;}
+  const {data,isError,error}=await supabase.rpc("is_qm_admin");
+  if(error||data!==true){adminLoggedIn=false;adminAutoPlay=false;updateAdminUI();return;}
+  adminLoggedIn=true;updateAdminUI();
+}
+async function adminLogin() {
+  if(!supabase)return toast("Supabase belum tersambung.");
+  const email=$("adminEmail").value.trim(), password=$("adminPassword").value;
+  if(!email||!password)return toast("Masukkan email dan password akun owner.");
+  const {data,error}=await supabase.auth.signInWithPassword({email,password});
+  if(error){toast("Login gagal. Periksa email dan password Supabase Auth.");return;}
+  const {data:isOwner,error:checkError}=await supabase.rpc("is_qm_admin");
+  if(checkError||isOwner!==true){await supabase.auth.signOut();adminLoggedIn=false;updateAdminUI();toast("Akun ini tidak terdaftar sebagai owner Admin.");return;}
+  adminLoggedIn=true;$("adminPassword").value="";updateAdminUI();toast("Login Admin Owner berhasil.");
+}
+function parseAdminAnalysis(lines) {
+  const rows=[];
+  for(const line of lines){
+    const depth=Number((line.match(/\bdepth (\d+)/)||[])[1]||0);
+    const multipv=Number((line.match(/\bmultipv (\d+)/)||[])[1]||1);
+    const score=(line.match(/\bscore (cp|mate) (-?\d+)/)||[]);
+    const pv=(line.match(/\bpv (.+)$/)||[])[1];
+    if(pv){const first=pv.trim().split(/\s+/)[0];if(/^[a-h][1-8][a-h][1-8][qrbn]?$/.test(first))rows.push({depth,multipv,scoreType:score[1],score:Number(score[2]),uci:first});}
+  }
+  rows.sort((a,b)=>b.depth-a.depth||a.multipv-b.multipv);
+  return rows;
+}
+async function analyzeAdminPosition() {
+  if(!adminLoggedIn)return toast("Login admin terlebih dahulu.");
+  if(roomId && game.turn()!==myColor)return toast("Tunggu giliranmu sebelum menganalisis posisi multiplayer.");
+  if(game.isGameOver())return toast("Permainan sudah selesai.");
+  if(adminAnalysisBusy)return;
+  adminAnalysisBusy=true;adminBestMove=null;$("adminAnalyzeBtn").disabled=true;$("adminPlayBestBtn").disabled=true;$("adminBestMove").textContent="Stockfish sedang menganalisis...";
+  try{
+    await initStockfish();adminInfoLines=[];
+    stockfishWorker.postMessage("stop");
+    stockfishWorker.postMessage("setoption name UCI_LimitStrength value false");
+    stockfishWorker.postMessage("setoption name MultiPV value 3");
+    stockfishWorker.postMessage("position fen "+game.fen());
+    stockfishWorker.postMessage("go depth 14 movetime 1800");
+    const best=await waitStockfish(x=>x.includes("bestmove "),20000);
+    const match=best.match(/bestmove\s+([a-h][1-8][a-h][1-8][qrbn]?)/);
+    const rows=parseAdminAnalysis(adminInfoLines);
+    if(!match)throw new Error("Stockfish tidak mengembalikan langkah.");
+    const uci=match[1];adminBestMove={from:uci.slice(0,2),to:uci.slice(2,4),promotion:uci[4]||undefined,fen:game.fen()};
+    const score=rows[0]?(rows[0].scoreType==="mate"?"mate "+rows[0].score:(rows[0].score/100).toFixed(2)):"evaluasi tersedia";
+    $("adminBestMove").textContent=`Best move: ${uci.slice(0,2)} → ${uci.slice(2,4)} · depth ${rows[0]?.depth||14} · ${score}`;
+    $("adminPlayBestBtn").disabled=false;
+  }catch(error){console.error(error);$("adminBestMove").textContent="Analisis gagal. Periksa koneksi Stockfish.";toast("Stockfish gagal menganalisis posisi.");}
+  finally{adminAnalysisBusy=false;$("adminAnalyzeBtn").disabled=false;}
+}
+function adminPlayBest() {
+  if(!adminLoggedIn||!adminBestMove)return;
+  if(roomId && game.turn()!==myColor)return toast("Langkah hanya dapat dimainkan pada giliran akun owner.");
+  if(adminBestMove.fen!==game.fen())return toast("Posisi berubah. Analisis ulang terlebih dahulu.");
+  const legal=game.moves({verbose:true}).find(m=>m.from===adminBestMove.from&&m.to===adminBestMove.to&&(!adminBestMove.promotion||m.promotion===adminBestMove.promotion));
+  if(!legal)return toast("Langkah terbaik tidak lagi legal.");
+  makeMove(legal);adminBestMove=null;$("adminPlayBestBtn").disabled=true;
+}
+async function adminAutoMoveIfNeeded() {
+  if(!adminLoggedIn||!adminAutoPlay||game.isGameOver()||game.turn()!==(roomId?myColor:"w")||adminAutoBusy)return;
+  adminAutoBusy=true;
+  try{await analyzeAdminPosition();if(adminBestMove&&adminBestMove.fen===game.fen())adminPlayBest();}
+  finally{adminAutoBusy=false;}
+}
 
 
 if (SUPABASE_URL.startsWith("https://") && !SUPABASE_ANON_KEY.startsWith("YOUR_")) {
@@ -475,66 +626,115 @@ function isEndgamePosition(board) {
   for(const row of board)for(const piece of row)if(piece){if(piece.type==="q")queens++;if(["r","b","n"].includes(piece.type))minorsAndRooks++;}
   return queens===0 || minorsAndRooks<=4;
 }
+
+// Bot strength is derived from its displayed Elo. The numbers are practical
+// browser difficulty settings, not official engine ratings.
+function getBotStrength(bot) {
+  const rating = Number(bot?.elo) || 400;
+  if (rating < 650) return {depth:1, noise:175, nodes:1800, think:300};
+  if (rating < 950) return {depth:2, noise:125, nodes:2600, think:350};
+  if (rating < 1200) return {depth:2, noise:85, nodes:3600, think:400};
+  if (rating < 1500) return {depth:2, noise:55, nodes:4800, think:450};
+  if (rating < 1800) return {depth:3, noise:30, nodes:6200, think:550};
+  if (rating < 2200) return {depth:3, noise:16, nodes:7600, think:650};
+  if (rating < 2800) return {depth:4, noise:8, nodes:9000, think:750};
+  return {depth:4, noise:2, nodes:11000, think:850};
+}
+
 function evaluatePosition(position, perspective, style) {
-  const values = {p:100,n:320,b:335,r:500,q:900,k:20000};
+  const values = {p:100,n:325,b:335,r:500,q:950,k:20000};
   const board = position.board();
-  let score = 0, bishops = {w:0,b:0};
+  let score = 0, bishops = {w:0,b:0}, pawnFiles = {w:Array(8).fill(0),b:Array(8).fill(0)};
+  let kingSquares = {w:null,b:null};
   for (let r=0;r<8;r++) for (let f=0;f<8;f++) {
     const piece=board[r][f]; if(!piece)continue;
     const sign=piece.color===perspective?1:-1, type=piece.type;
-    let positional=0;
     const center=(3.5-Math.abs(3.5-f))+(3.5-Math.abs(3.5-r));
-    if(type==="n"||type==="b")positional+=center*5;
-    if(type==="p")positional+=(piece.color==="w"?(6-r):(r-1))*5;
-    if(type==="k"&&isEndgamePosition(board))positional+=center*5;
-    if(type==="q"&&style==="tactical")positional+=center*2;
+    let positional=0;
+    if(type==="n") positional += center*7;
+    if(type==="b") positional += center*4;
+    if(type==="p") {
+      pawnFiles[piece.color][f]++;
+      positional += (piece.color==="w"?(6-r):(r-1))*7;
+      if(f>=2&&f<=5) positional+=8;
+    }
+    if(type==="r" && (piece.color==="w"?r===1:r===6)) positional+=18;
+    if(type==="q" && style==="tactical") positional+=center*3;
+    if(type==="k") {
+      kingSquares[piece.color]={r,f};
+      if(isEndgamePosition(board)) positional+=center*8;
+      else positional-=center*5;
+    }
     score+=sign*(values[type]+positional);
     if(type==="b")bishops[piece.color]++;
   }
-  if(bishops[perspective]>=2)score+=28;
-  if(bishops[perspective==="w"?"b":"w"]>=2)score-=28;
+  for(const color of ["w","b"]) {
+    const sign=color===perspective?1:-1;
+    if(bishops[color]>=2)score+=sign*32;
+    for(let f=0;f<8;f++) {
+      if(pawnFiles[color][f]>1)score-=sign*13*(pawnFiles[color][f]-1);
+      if(pawnFiles[color][f] && !pawnFiles[color][Math.max(0,f-1)] && !pawnFiles[color][Math.min(7,f+1)]) score-=sign*10;
+    }
+    const king=kingSquares[color];
+    if(king && !isEndgamePosition(board)) {
+      const home=color==="w"?7:0;
+      if(king.r===home && (king.f===6||king.f===2)) score+=sign*22;
+    }
+  }
   return score;
 }
+
+function moveOrderScore(move) {
+  const values={p:100,n:325,b:335,r:500,q:950};
+  let score=move.captured?(10*values[move.captured]-(values[move.piece]||0)):0;
+  if(move.promotion)score+=800+(values[move.promotion]||0);
+  if(move.flags?.includes("k")||move.flags?.includes("q"))score+=35;
+  return score;
+}
+
 function botSearch(position, depth, alpha, beta, maximizingColor, style, budget) {
-  if (depth===0 || position.isGameOver() || budget.nodes>18000) {
-    budget.nodes++;
-    if(position.isCheckmate()) return position.turn()===maximizingColor ? -100000-depth : 100000+depth;
-    return evaluatePosition(position,maximizingColor,style);
-  }
-  budget.nodes++;
-  const moves=position.moves({verbose:true});
-  moves.sort((a,b)=>{
-    const va=(b.captured?({p:100,n:320,b:335,r:500,q:900}[b.captured]||0):0)+(b.promotion?800:0);
-    const vb=(a.captured?({p:100,n:320,b:335,r:500,q:900}[a.captured]||0):0)+(a.promotion?800:0);
-    return va-vb;
-  });
+  if (budget.nodes++ > budget.maxNodes) return evaluatePosition(position,maximizingColor,style);
+  if(position.isCheckmate()) return position.turn()===maximizingColor ? -100000-depth : 100000+depth;
+  if(position.isDraw()) return 0;
+  if(depth===0) return evaluatePosition(position,maximizingColor,style);
+  const moves=position.moves({verbose:true}).sort((a,b)=>moveOrderScore(b)-moveOrderScore(a));
   const isMax=position.turn()===maximizingColor;
   let best=isMax?-Infinity:Infinity;
   for(const move of moves){
-    const next=new Chess(position.fen());next.move(move);
+    const next=new Chess(position.fen()); next.move(move);
     const score=botSearch(next,depth-1,alpha,beta,maximizingColor,style,budget);
     if(isMax){best=Math.max(best,score);alpha=Math.max(alpha,best);}
     else{best=Math.min(best,score);beta=Math.min(beta,best);}
-    if(beta<=alpha||budget.nodes>18000)break;
+    if(beta<=alpha||budget.nodes>budget.maxNodes)break;
   }
   return best;
 }
-function chooseBotMove() {
-  const bot=activeRandomBot || BOT_PROFILES[selectedBot] || BOT_PROFILES.mitten, moves=game.moves({verbose:true});
-  if(!moves.length)return null;
-  const style=activeRandomBot ? "classical" : (selectedBot==="hikaru"?"tactical":selectedBot==="magnus"?"endgame":"classical");
-  const budget={nodes:0};
-  let best=-Infinity, choices=[];
-  for(const move of moves){
-    const next=new Chess(game.fen());next.move(move);
-    const score=botSearch(next,bot.depth-1,-Infinity,Infinity,game.turn(),style,budget);
-    const noise=selectedBot==="hikaru"&&move.captured?5:0;
-    const total=score+noise+(Math.random()-.5)*(selectedBot==="arya"?0.2:selectedBot==="mitten"?180:2.5);
-    if(total>best+0.01){best=total;choices=[move];}
-    else if(Math.abs(total-best)<0.01)choices.push(move);
-    if(budget.nodes>18000)break;
+
+async function chooseBotMove() {
+  const bot=activeRandomBot || BOT_PROFILES[selectedBot] || BOT_PROFILES.mitten;
+  try {
+    const move=await stockfishMove(game.fen(),bot);
+    if(move && game.moves({verbose:true}).some(m=>m.from===move.from&&m.to===move.to&&(!move.promotion||m.promotion===move.promotion))) return move;
+  } catch(error) {
+    console.warn("Stockfish Lite unavailable, using built-in fallback AI:",error);
+    toast("Stockfish tidak tersedia. Menggunakan AI cadangan.");
   }
-  return choices[Math.floor(Math.random()*choices.length)]||moves[0];
+  return chooseFallbackBotMove();
+}
+function chooseFallbackBotMove() {
+  const bot=activeRandomBot || BOT_PROFILES[selectedBot] || BOT_PROFILES.mitten;
+  const moves=game.moves({verbose:true});
+  if(!moves.length)return null;
+  const strength=getBotStrength(bot), style=selectedBot==="hikaru"?"tactical":selectedBot==="magnus"?"endgame":"classical";
+  const budget={nodes:0,maxNodes:strength.nodes}; let best=-Infinity,choices=[];
+  const ordered=moves.sort((a,b)=>moveOrderScore(b)-moveOrderScore(a));
+  for(const move of ordered){
+    const next=new Chess(game.fen()); next.move(move);
+    const score=botSearch(next,strength.depth-1,-Infinity,Infinity,game.turn(),style,budget)+(Math.random()-.5)*strength.noise;
+    if(score>best+.01){best=score;choices=[move];} else if(Math.abs(score-best)<.01)choices.push(move);
+    if(budget.nodes>budget.maxNodes)break;
+  }
+  return choices[Math.floor(Math.random()*choices.length)]||ordered[0];
 }
 function scheduleBotMove() {
   if(roomId||selectedBot==null||game.isGameOver()||game.turn()!=="b"||botThinking)return;
@@ -543,15 +743,16 @@ function scheduleBotMove() {
   $("statusDescription").textContent="Calculating a reply…";
   $("statusPill").textContent="BOT THINKING";
   $("playBotBtn").disabled=true;
-  botTimer=setTimeout(()=>{
-    const move=chooseBotMove();
+  botTimer=setTimeout(async()=>{
+    const move=await chooseBotMove();
     if(move) {
       const movingColor = game.turn();
       const result=game.move({from:move.from,to:move.to,promotion:move.promotion});
       if(result){addMoveIncrement(movingColor);playMoveSound(result);lastMove={from:result.from,to:result.to};}
     }
     botThinking=false;$("playBotBtn").disabled=false;render();
-  },selectedBot==="arya"?650:450);
+    if(adminAutoPlay && game.turn()===(roomId?myColor:"w")) setTimeout(adminAutoMoveIfNeeded,250);
+  },getBotStrength(activeRandomBot || BOT_PROFILES[selectedBot] || BOT_PROFILES.mitten).think);
 }
 function render() {
   paintClocks();
@@ -631,7 +832,38 @@ function updatePanel() {
   $("whiteCaption").textContent = roomId ? (myColor==="w" ? "Your seat":"Playing online") : "Playing as White";
   $("blackCaption").textContent = roomId ? (myColor==="b" ? "Your seat":"Playing online") : "AI opponent · "+(activeRandomBot?.elo || BOT_PROFILES[selectedBot]?.elo || "—")+" Elo setting";
   updateEloDisplay();
-  if (over) settleMatchElo();
+  if (over) {
+    settleMatchElo();
+    scheduleReturnToHome();
+  }
+}
+
+function scheduleReturnToHome() {
+  if (finishReturnScheduled) return;
+  finishReturnScheduled = true;
+  clearTimeout(finishReturnTimer);
+  toast("Pertandingan selesai. Kembali ke halaman awal dalam beberapa detik...");
+  finishReturnTimer = setTimeout(async () => {
+    try {
+      if (roomId) await leaveCurrentRoom();
+      stopMatchmaking();
+      selectedBot = null;
+      activeRandomBot = null;
+      document.querySelectorAll(".bot-choice").forEach(button => button.classList.remove("active"));
+      resetBoardForFreshGame();
+      finishReturnScheduled = false;
+      finishReturnTimer = null;
+      if ($("roomStatus")) $("roomStatus").textContent = "Ready. Choose a game mode to begin.";
+      if ($("connectionLabel")) $("connectionLabel").textContent = supabase ? "ONLINE READY" : "LOCAL GAME";
+      updateBotProfile();
+      render();
+      window.scrollTo({top: 0, behavior: "smooth"});
+      toast("Kembali ke halaman awal. Pilih mode untuk bermain lagi.");
+    } catch (error) {
+      console.error("Return to home failed:", error);
+      finishReturnScheduled = false;
+    }
+  }, 5000);
 }
 function checkmate(){ return game.isCheckmate(); }
 function onSquare(square) {
@@ -678,6 +910,7 @@ function makeMove(move) {
     } else if (!roomId && game.turn()==="b") {
       scheduleBotMove();
     }
+    if(adminAutoPlay && game.turn()===(roomId?myColor:"w")) setTimeout(adminAutoMoveIfNeeded,250);
   } catch (e) { toast("Gerakan tidak valid."); }
 }
 $("castleKingBtn").onclick=()=>{
@@ -690,6 +923,7 @@ $("castleQueenBtn").onclick=()=>{
 };
 $("cancelPromotion").onclick=()=>{$("promotionModal").classList.remove("open");pendingPromotion=null;};
 $("newGameBtn").onclick=async()=>{
+  clearTimeout(finishReturnTimer); finishReturnTimer = null; finishReturnScheduled = false;
   if (roomId) await leaveCurrentRoom();
   resetBoardForFreshGame();
   $("roomStatus").textContent="Ready for a new game.";
@@ -886,7 +1120,7 @@ async function createRoom() {
       id,fen:game.fen(),pgn:game.pgn(),white_id:playerId,black_id:null,updated_at:new Date().toISOString()
     }).select().single();
     if(error)throw error;
-    roomRow=data;roomId=id;myColor="w";resultApplied=false;localMatchId=null;await connectRoom();
+    roomRow=data;roomId=id;myColor="w";resultApplied=false;localMatchId=null;await connectRoom();if(adminLoggedIn&&adminAutoPlay&&game.turn()===myColor)setTimeout(adminAutoMoveIfNeeded,350);
     history.replaceState({}, "", `?room=${id}`);
     $("roomStatus").textContent=`Room ${id} dibuat. Bagikan invite link ke teman.`;
     $("copyRoomBtn").disabled=false;$("connectionLabel").textContent="ONLINE · ROOM "+id;
@@ -908,7 +1142,7 @@ async function joinRoom(id) {
       else {const retry=await supabase.from("chess_rooms").select("*").eq("id",id).single();data=retry.data;if(data.black_id===playerId)myColor="b";else return toast("Room sudah penuh.");}
     } else return toast("Room sudah penuh. Maksimal dua pemain.");
     if (roomId && roomId !== id) await leaveCurrentRoom();
-    roomId=id;roomRow=data;resultApplied=false;localMatchId=null;resignationResult=null;
+    roomId=id;roomRow=data;resultApplied=false;localMatchId=null;resignationResult=null;if(adminLoggedIn&&adminAutoPlay&&game.turn()===myColor)setTimeout(adminAutoMoveIfNeeded,350);
     game.load(data.fen);selected=null;legalTargets=[];lastMove=null;
     await connectRoom();
     $("roomStatus").textContent=`Joined room ${id} as ${myColor==="w"?"White":"Black"}.`;
@@ -938,6 +1172,7 @@ function applyRemoteRoomRow(row) {
         lastMove = null;
         render();
         woodenTap(undefined, 0.88, 0);
+        if(adminLoggedIn && adminAutoPlay && game.turn()===myColor) setTimeout(adminAutoMoveIfNeeded,350);
       }
     } catch (err) {
       console.error("Could not apply remote chess position:", err);
@@ -1024,6 +1259,7 @@ $("botChoiceGrid").addEventListener("click",e=>{
   updateBotProfile();
 });
 $("playBotBtn").onclick=()=>{
+  clearTimeout(finishReturnTimer); finishReturnTimer = null; finishReturnScheduled = false;
   if(roomId){toast("Keluar dari room online sebelum bermain melawan bot.");return;}
   if(!selectedBot){toast("Pilih lawan AI terlebih dahulu.");return;}
   clearTimeout(botTimer);botThinking=false;
@@ -1218,3 +1454,15 @@ $("tournamentRefreshBtn")?.addEventListener("click",loadTournamentLobby);
 startTournamentTicker();
 if(supabase)loadTournamentLobby();
 
+
+
+// Admin-only local analysis controls
+$("adminLoginBtn")?.addEventListener("click",adminLogin);
+$("adminPassword")?.addEventListener("keydown",e=>{if(e.key==="Enter")adminLogin();});
+$("adminEmail")?.addEventListener("keydown",e=>{if(e.key==="Enter")adminLogin();});
+$("adminAnalyzeBtn")?.addEventListener("click",analyzeAdminPosition);
+$("adminPlayBestBtn")?.addEventListener("click",adminPlayBest);
+$("adminLogoutBtn")?.addEventListener("click",async()=>{if(supabase)await supabase.auth.signOut();adminLoggedIn=false;adminAutoPlay=false;adminBestMove=null;updateAdminUI();toast("Admin logout.");});
+$("adminAutoPlay")?.addEventListener("change",e=>{adminAutoPlay=e.target.checked;if(adminAutoPlay)adminAutoMoveIfNeeded();});
+updateAdminUI();
+if(supabase){ verifyAdminSession(); supabase.auth.onAuthStateChange((_event)=>{ setTimeout(verifyAdminSession,0); }); }

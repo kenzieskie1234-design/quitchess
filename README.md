@@ -120,3 +120,43 @@ Versi ini masih prototipe tanpa Supabase Auth. Identitas pemain dibuat per brows
 
 ## Blitz Tournament
 Run the latest `supabase.sql` once in Supabase SQL Editor to create the two-hour tournament registration and trophy tables. The current web update provides the upcoming tournament lobby, 32-player registration list, and player trophy display. Full bracket execution and verified tournament match progression are not yet implemented in this lobby update.
+
+## AI opponent update
+
+Bot search now adjusts its practical browser strength from the opponent profile Elo: higher-rated bots search deeper, use a larger node budget, and make fewer deliberately imperfect choices. The evaluator also considers piece activity, center control, pawn structure, bishop pair, rook activity, and king placement. This is a lightweight in-browser chess search, not Stockfish, and displayed Elo values are difficulty labels rather than measured engine ratings.
+
+
+## Stockfish Lite AI update
+
+The local bot opponent now uses Stockfish.js 19 Lite single-threaded WebAssembly in a dedicated Web Worker. The engine files are loaded on demand from jsDelivr (`stockfish@19.0.1`), so they are downloaded only when a local bot match starts. Single-threaded Lite avoids the cross-origin isolation headers required by the multi-threaded build. If the CDN/engine cannot load, the previous built-in search AI is used as a fallback.
+
+Bot Elo is used as a difficulty profile: lower-rated bots use reduced Skill Level, multiple candidate lines, shallower search, and shorter thinking time; higher-rated bots use deeper searches and, where supported, Stockfish UCI Elo limiting. These are game difficulty settings, not measured Elo guarantees. Arya 5000 remains fictional and is capped to Stockfish's supported Elo range.
+
+Stockfish.js is GPL-3.0. See https://github.com/nmrugg/stockfish.js and https://www.gnu.org/licenses/gpl-3.0.html for source and license. The engine is fetched unmodified at runtime from the published npm package.
+
+
+## Private Admin Mode
+- Open the PRIVATE ADMIN panel in the game sidebar.
+- On first use, enter a password of at least 6 characters to create a device-local admin password. Later, use the same password to log in.
+- Analyze position uses Stockfish Lite to show its best move, search depth, and available evaluation. Play best move applies that move if the board position has not changed.
+- Auto-play best move automatically analyzes and plays White's move after the local bot has replied.
+- Admin analysis and auto-play are intentionally disabled in online rooms.
+- This is a convenience lock only: the password hash is stored in this browser's localStorage. It is not secure server-side authentication and does not grant Supabase privileges. Clearing browser data resets the local admin password.
+
+
+## Admin Stockfish di Multiplayer
+
+Admin Mode dapat menganalisis posisi room multiplayer dan memainkan Best Move hanya ketika giliran pemain pada perangkat yang sudah login Admin. Auto-play menunggu langkah lawan masuk, lalu menganalisis dan memainkan langkah pada giliran owner. Ini merupakan kontrol lokal berbasis password browser, bukan autentikasi owner yang aman di server. Untuk perlindungan owner sungguhan lintas perangkat, integrasikan Supabase Auth dan validasi owner di backend/RLS.
+
+## Admin Owner yang diverifikasi Supabase
+
+Admin tidak lagi memakai password lokal browser. Login memakai Supabase Auth dan izin owner diperiksa server-side melalui RPC `is_qm_admin()`.
+
+1. Di Supabase Dashboard buka Authentication → Users, lalu buat user owner dengan email dan password yang hanya kamu gunakan.
+2. Salin User UID milik akun tersebut.
+3. Buka `admin-owner.sql`. Jalankan bagian pembuatan tabel/fungsi terlebih dahulu.
+4. Pada bagian INSERT yang dikomentari, ganti `YOUR_OWNER_AUTH_USER_UUID` dengan User UID kamu, hilangkan komentar `--` pada tiga baris INSERT, lalu jalankan.
+5. Deploy seluruh file ZIP terbaru ke GitHub/Vercel.
+6. Login pada panel PRIVATE ADMIN memakai email dan password Supabase Auth tadi.
+
+Hanya UUID yang dimasukkan ke `public.qm_admin_owners` yang dapat lolos pemeriksaan owner. Jangan pernah memasukkan service_role key ke frontend. Jangan membagikan password owner. Untuk mencabut akses, hapus baris UUID owner dari `public.qm_admin_owners`.
