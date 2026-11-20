@@ -50,13 +50,14 @@ let stockfishQueue = Promise.resolve();
 let stockfishSearchId = 0;
 let stockfishAvailable = true;
 let adminLoggedIn = false, adminAutoPlay = false, adminBestMove = null, adminAnalysisBusy = false, adminAutoBusy = false;
-let adminAccessRevealed = false, adminSecretTapCount = 0, adminSecretTapTimer = null;
-let gameAvatarSignature = "", gameAvatarCache = {};
 let adminInfoLines = [];
 let adminCollectInfo = false;
 let moveQualityByPly = {};
 let qualityAnalysisToken = 0;
 let stockfishQualityLines = [];
+let avatarCache = { self: localStorage.getItem("quietmove-avatar-url") || "", white: "", black: "" };
+let avatarRefreshBusy = false;
+let soloTournament = JSON.parse(localStorage.getItem("quietmove-solo-tournament") || "null");
 function withStockfishLock(task) {
   const run = stockfishQueue.then(task, task);
   stockfishQueue = run.catch(() => {});
@@ -196,8 +197,6 @@ function analyzeMoveQuality(beforeFen, afterFen, moveUci, movingColor, ply) {
 
 function updateAdminUI() {
   const tools=$("adminTools"); if(!tools)return;
-  const card=$("adminCard");
-  if(card)card.hidden=!(adminAccessRevealed||adminLoggedIn);
   tools.hidden=!adminLoggedIn;
   $("adminEmail").hidden=adminLoggedIn; $("adminPassword").hidden=adminLoggedIn; $("adminLoginBtn").hidden=adminLoggedIn;
   $("adminStatus").textContent=adminLoggedIn?"Owner terverifikasi oleh Supabase. Admin tools aktif pada giliran akun ini.":"Login menggunakan akun Supabase Auth yang sudah didaftarkan sebagai owner melalui SQL.";
@@ -209,7 +208,7 @@ async function verifyAdminSession() {
   if(!session){adminLoggedIn=false;updateAdminUI();return;}
   const {data,isError,error}=await supabase.rpc("is_qm_admin");
   if(error||data!==true){adminLoggedIn=false;adminAutoPlay=false;updateAdminUI();return;}
-  adminLoggedIn=true;updateAdminUI();
+  adminLoggedIn=true;$("adminCard").hidden=false;updateAdminUI();
 }
 async function adminLogin() {
   if(!supabase)return toast("Supabase belum tersambung.");
@@ -219,7 +218,7 @@ async function adminLogin() {
   if(error){toast("Login gagal. Periksa email dan password Supabase Auth.");return;}
   const {data:isOwner,error:checkError}=await supabase.rpc("is_qm_admin");
   if(checkError||isOwner!==true){await supabase.auth.signOut();adminLoggedIn=false;updateAdminUI();toast("Akun ini tidak terdaftar sebagai owner Admin.");return;}
-  adminLoggedIn=true;$("adminPassword").value="";updateAdminUI();toast("Login Admin Owner berhasil.");
+  adminLoggedIn=true;$("adminCard").hidden=false;$("adminPassword").value="";updateAdminUI();toast("Login Admin Owner berhasil.");
 }
 function parseAdminAnalysis(lines) {
   const rows=[];
@@ -579,7 +578,7 @@ async function loadFriendRequests(){
 async function loadMyProfile(){
   if(!supabase)return;
   const {data}=await supabase.from("profiles").select("*").eq("player_id",playerId).maybeSingle();
-  if(data){$("myUsername").value=data.username||"";$("myBio").value=data.bio||"";setMyAvatarPreview(data.avatar_url||"");}
+  if(data){$("myUsername").value=data.username||"";$("myBio").value=data.bio||"";setMyAvatarPreview(data.avatar_url||"");refreshGameAvatars();}
   $("myProfileStats").innerHTML=`<div class="stat-tile"><strong>${playerElo}</strong><small>YOUR ELO</small></div><div class="stat-tile"><strong>${data?.username?escapeHTML(data.username):"New player"}</strong><small>PLAYER PROFILE</small></div>`;
 }
 async function viewPlayer(id){
@@ -654,39 +653,8 @@ document.querySelectorAll(".social-tab").forEach(b=>b.addEventListener("click",(
 $("searchPlayersBtn").onclick=searchPlayers;
 $("playerSearch").addEventListener("keydown",e=>{if(e.key==="Enter")searchPlayers();});
 $("refreshSocialBtn").onclick=refreshSocial;
-
-function setGameAvatar(elementId, url, fallback) {
-  const el=$(elementId); if(!el)return;
-  el.replaceChildren();
-  if(url){
-    const img=document.createElement("img");
-    img.src=url; img.alt=""; img.referrerPolicy="no-referrer";
-    img.onerror=()=>{el.textContent=fallback||"♟";};
-    el.appendChild(img);
-  } else el.textContent=fallback||"♟";
-}
-async function refreshGameAvatars(force=false) {
-  if(!supabase)return;
-  const whiteId=roomId?(roomRow?.white_id||null):playerId;
-  const blackId=roomId?(roomRow?.black_id||null):null;
-  const signature=[whiteId||"",blackId||"",roomId||"local"].join("|");
-  if(!force&&signature===gameAvatarSignature)return;
-  gameAvatarSignature=signature;
-  const ids=[...new Set([whiteId,blackId].filter(Boolean))];
-  if(!ids.length)return;
-  const {data,error}=await supabase.from("profiles").select("player_id,avatar_url,username").in("player_id",ids);
-  if(error){console.warn("Could not load game avatars:",error);return;}
-  for(const p of data||[])gameAvatarCache[p.player_id]=p;
-  const white=whiteId?gameAvatarCache[whiteId]:null;
-  const black=blackId?gameAvatarCache[blackId]:null;
-  setGameAvatar("whiteGameAvatar",white?.avatar_url,"♘");
-  setGameAvatar("blackGameAvatar",black?.avatar_url,roomId?"♞":(BOT_PROFILES[selectedBot]?.avatar||activeRandomBot?.avatar||"♞"));
-  if(white?.username&&!roomId)$("whiteName").textContent=white.username+" · White";
-  if(roomId&&white?.username)$("whiteName").textContent=(whiteId===playerId?"You · White":white.username+" · White");
-  if(roomId&&black?.username)$("blackName").textContent=(blackId===playerId?"You · Black":black.username+" · Black");
-}
-
 function setMyAvatarPreview(url){
+  avatarCache.self=url||""; if(url)localStorage.setItem("quietmove-avatar-url",url); else localStorage.removeItem("quietmove-avatar-url");
   const img=$("myAvatarPreview"),fallback=$("myAvatarFallback");
   if(url){img.src=url;img.hidden=false;fallback.hidden=true;}
   else{img.removeAttribute("src");img.hidden=true;fallback.hidden=false;fallback.textContent=(($("myUsername")?.value||"?").trim()[0]||"?").toUpperCase();}
@@ -700,12 +668,12 @@ $("profilePhotoInput")?.addEventListener("change",async(e)=>{
   const path=`${playerId}/avatar-${Date.now()}.${ext}`;
   toast("Mengunggah foto profil…");
   const {error:uploadError}=await supabase.storage.from("profile-photos").upload(path,file,{upsert:true,contentType:file.type,cacheControl:"3600"});
-  if(uploadError){console.warn("Avatar upload:",uploadError);toast("Upload gagal. Pastikan SQL Storage sudah dijalankan.");return;}
+  if(uploadError){console.warn("Avatar upload:",uploadError);toast(`Upload gagal: ${uploadError.message||uploadError.error||"Storage policy/bucket belum siap"}`);return;}
   const {data:publicData}=supabase.storage.from("profile-photos").getPublicUrl(path);
   const avatarUrl=publicData?.publicUrl;
-  const {error:updateError}=await supabase.from("profiles").update({avatar_url:avatarUrl}).eq("player_id",playerId);
+  const {error:updateError}=await supabase.from("profiles").upsert({player_id:playerId,username:localStorage.getItem("quietmove-username")||("Player"+playerId.slice(0,5)),bio:$("myBio")?.value||"",elo:playerElo,avatar_url:avatarUrl,last_seen:new Date().toISOString()},{onConflict:"player_id"});
   if(updateError){console.warn("Avatar profile update:",updateError);toast("Foto terunggah, tetapi profil gagal diperbarui.");return;}
-  setMyAvatarPreview(avatarUrl);gameAvatarCache[playerId]={...(gameAvatarCache[playerId]||{}),avatar_url:avatarUrl};gameAvatarSignature="";await refreshGameAvatars(true);toast("Foto profil berhasil diperbarui.");
+  setMyAvatarPreview(avatarUrl);render();toast("Foto profil berhasil diperbarui.");
 });
 $("saveProfileBtn").onclick=async()=>{
   if(!supabase)return socialMessage("Configure Supabase first.");
@@ -713,7 +681,7 @@ $("saveProfileBtn").onclick=async()=>{
   if(username.length<3)return toast("Username needs at least 3 characters.");
   const {error}=await supabase.from("profiles").upsert({player_id:playerId,username,bio,elo:playerElo,last_seen:new Date().toISOString()},{onConflict:"player_id"});
   if(error){toast("Username may already be taken.");return;}
-  localStorage.setItem("quietmove-username",username);toast("Profile saved.");
+  localStorage.setItem("quietmove-username",username);refreshGameAvatars();toast("Profile saved.");
 };
 document.addEventListener("click",e=>{
   const add=e.target.closest("[data-add]");if(add)sendFriendRequest(add.dataset.add);
@@ -742,7 +710,6 @@ function isMyTurn() {
   return true;
 }
 function updateBotProfile() {
-  gameAvatarSignature="";
   const bot = BOT_PROFILES[selectedBot] || activeRandomBot;
   $("botName").textContent = bot?.name || "No opponent selected";
   $("botDescription").textContent = bot?.style || "Choose an AI opponent to continue";
@@ -928,6 +895,31 @@ function render() {
   }
   updatePanel();
 }
+function setStripAvatar(selector,url,fallback){
+  const el=document.querySelector(selector); if(!el)return;
+  if(url){ el.innerHTML=`<img src="${escapeHTML(url)}" alt="" loading="lazy">`; el.classList.add("has-photo"); }
+  else { el.textContent=fallback||"?"; el.classList.remove("has-photo"); }
+}
+async function refreshGameAvatars(){
+  if(avatarRefreshBusy)return; avatarRefreshBusy=true;
+  try{
+    if(!avatarCache.self && supabase){
+      const {data}=await supabase.from("profiles").select("avatar_url,username").eq("player_id",playerId).maybeSingle();
+      if(data?.avatar_url){avatarCache.self=data.avatar_url;localStorage.setItem("quietmove-avatar-url",data.avatar_url);}
+    }
+    const whiteIsMe=!roomId || myColor==="w";
+    const blackIsMe=roomId && myColor==="b";
+    avatarCache.white=whiteIsMe?avatarCache.self:"";
+    avatarCache.black=blackIsMe?avatarCache.self:"";
+    if(roomId && supabase && roomRow){
+      const otherId=myColor==="w"?roomRow.black_id:roomRow.white_id;
+      if(otherId){const {data}=await supabase.from("profiles").select("avatar_url").eq("player_id",otherId).maybeSingle();if(data?.avatar_url){if(myColor==="w")avatarCache.black=data.avatar_url;else avatarCache.white=data.avatar_url;}}
+    }
+    setStripAvatar(".white-avatar",avatarCache.white,"♘");
+    setStripAvatar(".black-avatar",avatarCache.black,roomId?"♞":(activeRandomBot?.avatar||BOT_PROFILES[selectedBot]?.avatar||"♞"));
+  }catch(e){console.debug("Avatar refresh",e)} finally{avatarRefreshBusy=false;}
+}
+
 function updatePanel() {
   const turn = game.turn(), check = game.isCheck(), over = game.isGameOver() || !!resignationResult || !!clockExpired;
   let title = turn === "w" ? "White to move":"Black to move";
@@ -974,11 +966,12 @@ function updatePanel() {
   $("blackName").textContent = roomId ? (myColor==="b" ? "You · Black":"Opponent · Black") : (activeRandomBot?.name || BOT_PROFILES[selectedBot]?.name || "Bot");
   $("whiteCaption").textContent = roomId ? (myColor==="w" ? "Your seat":"Playing online") : "Playing as White";
   $("blackCaption").textContent = roomId ? (myColor==="b" ? "Your seat":"Playing online") : "AI opponent · "+(activeRandomBot?.elo || BOT_PROFILES[selectedBot]?.elo || "—")+" Elo setting";
-  refreshGameAvatars();
   updateEloDisplay();
+  refreshGameAvatars();
   if (over) {
     settleMatchElo();
-    scheduleReturnToHome();
+    if(soloTournament?.active) handleSoloTournamentGameFinished();
+    else scheduleReturnToHome();
   }
 }
 
@@ -1604,6 +1597,48 @@ function startTournamentTicker() {
   tick();
   tournamentTimer=setInterval(tick,1000);
 }
+function persistSoloTournament(){localStorage.setItem("quietmove-solo-tournament",JSON.stringify(soloTournament));}
+function renderSoloTournament(){
+  const host=$("soloTournamentPanel"); if(!host)return;
+  if(!soloTournament){host.innerHTML='<p class="social-empty">Belum ada turnamen lokal yang dimulai.</p>';$("soloTournamentStart").hidden=false;return;}
+  const rounds=["Round of 32","Round of 16","Quarter-final","Semi-final","Final"];
+  $("soloTournamentStart").hidden=true;
+  host.innerHTML=`<div class="solo-tournament-head"><strong>${soloTournament.finished?(soloTournament.won?"🏆 Tournament Champion":"Tournament finished"):(rounds[soloTournament.round]||"Tournament")}</strong><small>${soloTournament.humans} pemain manusia · ${32-soloTournament.humans} bot pengisi</small></div><div class="solo-tournament-roster">${soloTournament.opponents.map((o,i)=>`<div class="tournament-player"><span class="tournament-seed">${i+1}</span><span>${escapeHTML(o.name)}</span><small>${i<soloTournament.round?"Completed":i===soloTournament.round?"Your next opponent":"Bot seat"}</small></div>`).join("")}</div><p class="tournament-status">${escapeHTML(soloTournament.message||"")}</p>${soloTournament.finished?'<button id="soloTournamentReset" class="copy-button">New tournament</button>':`<button id="soloTournamentPlay" class="room-button">${soloTournament.round===0?"Play first round":"Play next round"}</button>`}`;
+  $("soloTournamentPlay")?.addEventListener("click",startSoloTournamentRound);
+  $("soloTournamentReset")?.addEventListener("click",()=>{soloTournament=null;persistSoloTournament();renderSoloTournament();});
+}
+function createSoloTournament(){
+  const names=["Mitten","Daniel Brooks","Leo Carter","Adrian Fischer","Nathan Cole","Lucas Bennett","Mason Reed","Ethan Morgan","Oliver Hayes","Noah Blake","Julian Ross","Magnus","Hikaru","Fischer","Arya"];
+  const opponents=Array.from({length:5},(_,i)=>({name:names[(Math.random()*names.length)|0],elo:[350,960,1100,1180,1420,1270,1510,1660,1840,1740,1350,2882,2816,2785,5000][(Math.random()*15)|0]}));
+  soloTournament={active:true,finished:false,won:false,round:0,humans:1,opponents,message:"Bracket 32 slot dibuat. 31 slot kosong diisi bot; pertandingan bot lain disimulasikan agar turnamen tetap berjalan sampai final."};
+  soloTournament.opponents=opponents;
+  const roster=[{username:localStorage.getItem("quietmove-username")||"You",elo:playerElo},...Array.from({length:31},(_,i)=>({username:`${names[i%names.length]} Bot ${i+1}`,elo:[350,960,1100,1180,1420,1270,1510,1660,1840,1740,1350,2882,2816,2785,5000][i%15]}))];
+  $("tournamentPlayers").textContent="32 / 32";$("tournamentProgress").style.width="100%";
+  $("tournamentRoster").innerHTML=roster.map((r,i)=>`<div class="tournament-player"><span class="tournament-seed">${i+1}</span><span>${escapeHTML(r.username)}</span><small>${r.elo} ELO</small></div>`).join("");
+  $("soloTournamentStart").hidden=true;persistSoloTournament();renderSoloTournament();toast("32-player bracket siap. Kamu akan memainkan 5 babak melawan bot.");
+}
+function startSoloTournamentRound(){
+  if(!soloTournament||soloTournament.finished)return;
+  const opp=soloTournament.opponents[soloTournament.round];
+  const keys=Object.keys(BOT_PROFILES);let key=keys.reduce((best,k)=>Math.abs(Number(BOT_PROFILES[k].elo)-opp.elo)<Math.abs(Number(BOT_PROFILES[best].elo)-opp.elo)?k:best,keys[0]);
+  selectedBot=key;activeRandomBot=null;document.querySelectorAll(".bot-choice").forEach(b=>b.classList.toggle("active",b.dataset.bot===key));updateBotProfile();
+  clearTimeout(finishReturnTimer);finishReturnTimer=null;finishReturnScheduled=false;
+  $("playBotBtn").click();
+  toast(`${["Round of 32","Round of 16","Quarter-final","Semi-final","Final"][soloTournament.round]} vs ${opp.name}`);
+}
+function handleSoloTournamentGameFinished(){
+  if(!soloTournament?.active||soloTournament.lastHandled===localMatchId)return;
+  soloTournament.lastHandled=localMatchId;
+  const won=getLocalMatchOutcome()===1;
+  if(!won){soloTournament.active=false;soloTournament.finished=true;soloTournament.won=false;soloTournament.botChampion=soloTournament.opponents[4]?.name||"Bot Champion";soloTournament.message=`Kamu tersingkir. Simulasi pertandingan bot dilanjutkan hingga final; juara simulasi: ${soloTournament.botChampion}.`;}
+  else if(soloTournament.round>=4){soloTournament.active=false;soloTournament.finished=true;soloTournament.won=true;soloTournament.message="Kamu memenangkan final dan menjadi juara turnamen 32 pemain.";}
+  else {soloTournament.round++;soloTournament.message=`Menang! Kamu maju ke ${["Round of 16","Quarter-final","Semi-final","Final"][soloTournament.round-1]}. Bot mengisi dan menyelesaikan pertandingan bracket lainnya.`;}
+  persistSoloTournament();renderSoloTournament();
+  if(!soloTournament.finished){setTimeout(()=>{resetBoardForFreshGame();localMatchId=crypto.randomUUID();resultApplied=false;render();window.scrollTo({top:document.querySelector("#tournamentCard")?.offsetTop||0,behavior:"smooth"});},900);}
+  else {toast(soloTournament.won?"Juara turnamen! 🏆":"Turnamen selesai.");}
+}
+$("soloTournamentStart")?.addEventListener("click",createSoloTournament);
+renderSoloTournament();
 $("tournamentJoinBtn")?.addEventListener("click",joinNextTournament);
 $("tournamentLeaveBtn")?.addEventListener("click",unregisterTournament);
 $("tournamentRefreshBtn")?.addEventListener("click",loadTournamentLobby);
@@ -1612,25 +1647,22 @@ if(supabase)loadTournamentLobby();
 
 
 
-// Hidden owner entry: tap the small site eyebrow five times to reveal the private login.
+// Admin-only local analysis controls
+
+// Hidden entry point: five taps on the small brand eyebrow reveals the owner login panel.
+let adminSecretTapCount=0, adminSecretTapTimer=null;
 $("adminSecretTrigger")?.addEventListener("click",()=>{
-  adminSecretTapCount++;
-  clearTimeout(adminSecretTapTimer);
+  adminSecretTapCount++; clearTimeout(adminSecretTapTimer);
   adminSecretTapTimer=setTimeout(()=>{adminSecretTapCount=0;},1800);
-  if(adminSecretTapCount>=5){
-    adminSecretTapCount=0;adminAccessRevealed=true;updateAdminUI();
-    $("adminEmail")?.focus();
-    toast("Private owner access");
-  }
+  if(adminSecretTapCount>=5){adminSecretTapCount=0;$("adminCard").hidden=false;$("adminCard").scrollIntoView({behavior:"smooth",block:"center"});toast("Owner access panel opened. Login tetap diverifikasi Supabase.");}
 });
 
-// Admin-only local analysis controls
 $("adminLoginBtn")?.addEventListener("click",adminLogin);
 $("adminPassword")?.addEventListener("keydown",e=>{if(e.key==="Enter")adminLogin();});
 $("adminEmail")?.addEventListener("keydown",e=>{if(e.key==="Enter")adminLogin();});
 $("adminAnalyzeBtn")?.addEventListener("click",analyzeAdminPosition);
 $("adminPlayBestBtn")?.addEventListener("click",adminPlayBest);
-$("adminLogoutBtn")?.addEventListener("click",async()=>{if(supabase)await supabase.auth.signOut();adminLoggedIn=false;adminAutoPlay=false;adminBestMove=null;updateAdminUI();toast("Admin logout.");});
+$("adminLogoutBtn")?.addEventListener("click",async()=>{if(supabase)await supabase.auth.signOut();adminLoggedIn=false;adminAutoPlay=false;adminBestMove=null;updateAdminUI();$("adminCard").hidden=true;toast("Admin logout.");});
 $("adminAutoPlay")?.addEventListener("change",e=>{adminAutoPlay=e.target.checked;if(adminAutoPlay)adminAutoMoveIfNeeded();});
 updateAdminUI();
-if(supabase){ refreshGameAvatars(true); verifyAdminSession(); supabase.auth.onAuthStateChange((_event)=>{ setTimeout(verifyAdminSession,0); }); }
+if(supabase){ verifyAdminSession(); supabase.auth.onAuthStateChange((_event)=>{ setTimeout(verifyAdminSession,0); }); }

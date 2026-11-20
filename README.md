@@ -168,3 +168,9 @@ Hanya UUID yang dimasukkan ke `public.qm_admin_owners` yang dapat lolos pemeriks
 - Bot and Admin requests share a serialized engine queue. This prevents overlapping UCI commands from interrupting each other on the single Stockfish Worker.
 - Admin analysis results are discarded if the board position changes before analysis completes.
 - The Stockfish Lite single-threaded WASM build is loaded from jsDelivr, so an internet connection is still required to fetch the engine. It is not bundled locally in this ZIP.
+
+## Profile photo and solo bot-filled tournament update
+- Run `profile-storage-tournament-fix.sql` in Supabase SQL Editor to create/repair the public `profile-photos` bucket and Storage policies.
+- Upload a profile image from Community > My profile. The image URL is saved to the profile and displayed on the live player strip; online opponent avatars are fetched from their public profiles.
+- The local solo tournament button creates a 32-slot practice bracket with 31 bot fillers. The owner plays five knockout games against bot opponents. This solo bracket is stored in that browser's localStorage; it is not a synchronized global tournament bracket and does not award server-side trophies.
+- Admin login panel is hidden by default. Tap the small “THE LITTLE CHESS CLUB” label five times to reveal it. Supabase `is_qm_admin()` remains the authorization check.

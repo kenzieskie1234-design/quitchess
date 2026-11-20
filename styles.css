@@ -444,4 +444,8 @@ footer{border-color:rgba(255,255,255,.12)}
 .square .move-quality-badge{position:absolute;z-index:5;top:2px;right:2px;min-width:17px;height:17px;padding:0 3px;border-radius:5px;display:grid;place-items:center;font:800 10px/1 "DM Sans",sans-serif;color:#fff;background:#63736a;box-shadow:0 1px 4px #0008;pointer-events:none}
 .square .move-quality-badge.best{background:#159b66;color:#fff}.square .move-quality-badge.excellent{background:#26a66b}.square .move-quality-badge.good{background:#5c9b70}.square .move-quality-badge.inaccuracy{background:#d6a72c;color:#171717}.square .move-quality-badge.mistake{background:#e18432}.square .move-quality-badge.blunder{background:#d94b4b}.square .move-quality-badge.pending{background:#657b9b}
 
-.avatar img{width:100%;height:100%;object-fit:cover;border-radius:inherit;display:block}.avatar{overflow:hidden}.admin-card[hidden]{display:none!important}
+/* Player photos on the live chess identity strips */
+.avatar.has-photo{overflow:hidden;padding:0;background:#27332b}.avatar.has-photo img{width:100%;height:100%;object-fit:cover;border-radius:inherit;display:block}
+.solo-tournament-panel{margin:12px 0;padding:12px;border:1px solid #ffffff20;border-radius:12px;background:#0d1712aa}.solo-tournament-head{display:flex;justify-content:space-between;gap:10px;align-items:center;margin-bottom:10px}.solo-tournament-head small{color:var(--muted);font-size:10px}.solo-tournament-roster{display:grid;grid-template-columns:1fr 1fr;gap:6px;max-height:210px;overflow:auto}.solo-tournament-panel .tournament-status{margin:10px 0;color:var(--muted);font-size:11px}
+
+#adminSecretTrigger{cursor:default;user-select:none;-webkit-tap-highlight-color:transparent}
