@@ -44,7 +44,7 @@ const MATCHMAKING_WAIT_MS = 15000;
 
 // Stockfish 19 Lite single-threaded. Loaded lazily in a dedicated Worker.
 // The single-threaded build avoids SharedArrayBuffer / COOP-COEP requirements.
-const STOCKFISH_BASE = "https://cdn.jsdelivr.net/npm/stockfish@19.0.1/bin/";
+const STOCKFISH_WORKER_URL = "/stockfish/stockfish-19-lite-single.js";
 let stockfishWorker = null, stockfishInitPromise = null, stockfishWaiters = [];
 let stockfishQueue = Promise.resolve();
 let stockfishSearchId = 0;
@@ -85,15 +85,9 @@ function waitStockfish(test, timeout=20000) {
 async function initStockfish() {
   if (stockfishInitPromise) return stockfishInitPromise;
   stockfishInitPromise=(async()=>{
-    // A Blob bootstrap lets the Worker import the engine while locateFile points
-    // the WASM loader at the matching CDN asset.
-    const jsUrl=STOCKFISH_BASE+"stockfish-19-lite-single.js";
-    const wasmUrl=STOCKFISH_BASE+"stockfish-19-lite-single.wasm";
-    const bootstrap=`self.Module={locateFile:function(path){return path.endsWith('.wasm')?${JSON.stringify(wasmUrl)}:path;}};importScripts(${JSON.stringify(jsUrl)});`;
-    const blobUrl=URL.createObjectURL(new Blob([bootstrap],{type:"text/javascript"}));
-    // Do not revoke the Blob URL immediately. Some mobile browsers start loading
-    // the Worker asynchronously and fail if its URL is revoked too early.
-    stockfishWorker=new Worker(blobUrl);
+    // Self-hosted worker: keep the engine JS and matching WASM together in
+    // /stockfish/. This avoids cross-origin importScripts/CORS failures on mobile.
+    stockfishWorker=new Worker(STOCKFISH_WORKER_URL);
     stockfishWorker.onmessage=e=>stockfishMessage(e);
     stockfishWorker.onerror=(event)=>{
       stockfishAvailable=false;
@@ -110,7 +104,6 @@ async function initStockfish() {
     await waitStockfish(x=>x.includes("uciok"),30000);
     stockfishWorker.postMessage("isready");
     await waitStockfish(x=>x.includes("readyok"),30000);
-    URL.revokeObjectURL(blobUrl);
     return true;
   })().catch(error=>{stockfishAvailable=false; stockfishInitPromise=null; throw error;});
   return stockfishInitPromise;
