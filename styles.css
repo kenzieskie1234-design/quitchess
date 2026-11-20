@@ -443,3 +443,5 @@ footer{border-color:rgba(255,255,255,.12)}
 /* Chess.com-style move quality marker on the destination piece */
 .square .move-quality-badge{position:absolute;z-index:5;top:2px;right:2px;min-width:17px;height:17px;padding:0 3px;border-radius:5px;display:grid;place-items:center;font:800 10px/1 "DM Sans",sans-serif;color:#fff;background:#63736a;box-shadow:0 1px 4px #0008;pointer-events:none}
 .square .move-quality-badge.best{background:#159b66;color:#fff}.square .move-quality-badge.excellent{background:#26a66b}.square .move-quality-badge.good{background:#5c9b70}.square .move-quality-badge.inaccuracy{background:#d6a72c;color:#171717}.square .move-quality-badge.mistake{background:#e18432}.square .move-quality-badge.blunder{background:#d94b4b}.square .move-quality-badge.pending{background:#657b9b}
+
+.avatar img{width:100%;height:100%;object-fit:cover;border-radius:inherit;display:block}.avatar{overflow:hidden}.admin-card[hidden]{display:none!important}

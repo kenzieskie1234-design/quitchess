@@ -50,6 +50,8 @@ let stockfishQueue = Promise.resolve();
 let stockfishSearchId = 0;
 let stockfishAvailable = true;
 let adminLoggedIn = false, adminAutoPlay = false, adminBestMove = null, adminAnalysisBusy = false, adminAutoBusy = false;
+let adminAccessRevealed = false, adminSecretTapCount = 0, adminSecretTapTimer = null;
+let gameAvatarSignature = "", gameAvatarCache = {};
 let adminInfoLines = [];
 let adminCollectInfo = false;
 let moveQualityByPly = {};
@@ -194,6 +196,8 @@ function analyzeMoveQuality(beforeFen, afterFen, moveUci, movingColor, ply) {
 
 function updateAdminUI() {
   const tools=$("adminTools"); if(!tools)return;
+  const card=$("adminCard");
+  if(card)card.hidden=!(adminAccessRevealed||adminLoggedIn);
   tools.hidden=!adminLoggedIn;
   $("adminEmail").hidden=adminLoggedIn; $("adminPassword").hidden=adminLoggedIn; $("adminLoginBtn").hidden=adminLoggedIn;
   $("adminStatus").textContent=adminLoggedIn?"Owner terverifikasi oleh Supabase. Admin tools aktif pada giliran akun ini.":"Login menggunakan akun Supabase Auth yang sudah didaftarkan sebagai owner melalui SQL.";
@@ -650,6 +654,38 @@ document.querySelectorAll(".social-tab").forEach(b=>b.addEventListener("click",(
 $("searchPlayersBtn").onclick=searchPlayers;
 $("playerSearch").addEventListener("keydown",e=>{if(e.key==="Enter")searchPlayers();});
 $("refreshSocialBtn").onclick=refreshSocial;
+
+function setGameAvatar(elementId, url, fallback) {
+  const el=$(elementId); if(!el)return;
+  el.replaceChildren();
+  if(url){
+    const img=document.createElement("img");
+    img.src=url; img.alt=""; img.referrerPolicy="no-referrer";
+    img.onerror=()=>{el.textContent=fallback||"♟";};
+    el.appendChild(img);
+  } else el.textContent=fallback||"♟";
+}
+async function refreshGameAvatars(force=false) {
+  if(!supabase)return;
+  const whiteId=roomId?(roomRow?.white_id||null):playerId;
+  const blackId=roomId?(roomRow?.black_id||null):null;
+  const signature=[whiteId||"",blackId||"",roomId||"local"].join("|");
+  if(!force&&signature===gameAvatarSignature)return;
+  gameAvatarSignature=signature;
+  const ids=[...new Set([whiteId,blackId].filter(Boolean))];
+  if(!ids.length)return;
+  const {data,error}=await supabase.from("profiles").select("player_id,avatar_url,username").in("player_id",ids);
+  if(error){console.warn("Could not load game avatars:",error);return;}
+  for(const p of data||[])gameAvatarCache[p.player_id]=p;
+  const white=whiteId?gameAvatarCache[whiteId]:null;
+  const black=blackId?gameAvatarCache[blackId]:null;
+  setGameAvatar("whiteGameAvatar",white?.avatar_url,"♘");
+  setGameAvatar("blackGameAvatar",black?.avatar_url,roomId?"♞":(BOT_PROFILES[selectedBot]?.avatar||activeRandomBot?.avatar||"♞"));
+  if(white?.username&&!roomId)$("whiteName").textContent=white.username+" · White";
+  if(roomId&&white?.username)$("whiteName").textContent=(whiteId===playerId?"You · White":white.username+" · White");
+  if(roomId&&black?.username)$("blackName").textContent=(blackId===playerId?"You · Black":black.username+" · Black");
+}
+
 function setMyAvatarPreview(url){
   const img=$("myAvatarPreview"),fallback=$("myAvatarFallback");
   if(url){img.src=url;img.hidden=false;fallback.hidden=true;}
@@ -669,7 +705,7 @@ $("profilePhotoInput")?.addEventListener("change",async(e)=>{
   const avatarUrl=publicData?.publicUrl;
   const {error:updateError}=await supabase.from("profiles").update({avatar_url:avatarUrl}).eq("player_id",playerId);
   if(updateError){console.warn("Avatar profile update:",updateError);toast("Foto terunggah, tetapi profil gagal diperbarui.");return;}
-  setMyAvatarPreview(avatarUrl);toast("Foto profil berhasil diperbarui.");
+  setMyAvatarPreview(avatarUrl);gameAvatarCache[playerId]={...(gameAvatarCache[playerId]||{}),avatar_url:avatarUrl};gameAvatarSignature="";await refreshGameAvatars(true);toast("Foto profil berhasil diperbarui.");
 });
 $("saveProfileBtn").onclick=async()=>{
   if(!supabase)return socialMessage("Configure Supabase first.");
@@ -706,6 +742,7 @@ function isMyTurn() {
   return true;
 }
 function updateBotProfile() {
+  gameAvatarSignature="";
   const bot = BOT_PROFILES[selectedBot] || activeRandomBot;
   $("botName").textContent = bot?.name || "No opponent selected";
   $("botDescription").textContent = bot?.style || "Choose an AI opponent to continue";
@@ -937,6 +974,7 @@ function updatePanel() {
   $("blackName").textContent = roomId ? (myColor==="b" ? "You · Black":"Opponent · Black") : (activeRandomBot?.name || BOT_PROFILES[selectedBot]?.name || "Bot");
   $("whiteCaption").textContent = roomId ? (myColor==="w" ? "Your seat":"Playing online") : "Playing as White";
   $("blackCaption").textContent = roomId ? (myColor==="b" ? "Your seat":"Playing online") : "AI opponent · "+(activeRandomBot?.elo || BOT_PROFILES[selectedBot]?.elo || "—")+" Elo setting";
+  refreshGameAvatars();
   updateEloDisplay();
   if (over) {
     settleMatchElo();
@@ -1574,6 +1612,18 @@ if(supabase)loadTournamentLobby();
 
 
 
+// Hidden owner entry: tap the small site eyebrow five times to reveal the private login.
+$("adminSecretTrigger")?.addEventListener("click",()=>{
+  adminSecretTapCount++;
+  clearTimeout(adminSecretTapTimer);
+  adminSecretTapTimer=setTimeout(()=>{adminSecretTapCount=0;},1800);
+  if(adminSecretTapCount>=5){
+    adminSecretTapCount=0;adminAccessRevealed=true;updateAdminUI();
+    $("adminEmail")?.focus();
+    toast("Private owner access");
+  }
+});
+
 // Admin-only local analysis controls
 $("adminLoginBtn")?.addEventListener("click",adminLogin);
 $("adminPassword")?.addEventListener("keydown",e=>{if(e.key==="Enter")adminLogin();});
@@ -1583,4 +1633,4 @@ $("adminPlayBestBtn")?.addEventListener("click",adminPlayBest);
 $("adminLogoutBtn")?.addEventListener("click",async()=>{if(supabase)await supabase.auth.signOut();adminLoggedIn=false;adminAutoPlay=false;adminBestMove=null;updateAdminUI();toast("Admin logout.");});
 $("adminAutoPlay")?.addEventListener("change",e=>{adminAutoPlay=e.target.checked;if(adminAutoPlay)adminAutoMoveIfNeeded();});
 updateAdminUI();
-if(supabase){ verifyAdminSession(); supabase.auth.onAuthStateChange((_event)=>{ setTimeout(verifyAdminSession,0); }); }
+if(supabase){ refreshGameAvatars(true); verifyAdminSession(); supabase.auth.onAuthStateChange((_event)=>{ setTimeout(verifyAdminSession,0); }); }
